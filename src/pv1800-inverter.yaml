@@ -193,11 +193,13 @@ sensor:
     address: 15201
     name: "Inverter PV Charger work state"
     id: pv_charger_work_state
+    internal: true
     register_type: holding
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15202
     name: "Inverter PV Charger MPPT state"
+    internal: true
     id: pv_charger_mppt_state
     register_type: holding
   - platform: modbus_controller
@@ -205,6 +207,7 @@ sensor:
     address: 15203
     name: "Inverter PV Charger Charging state"
     id: pv_charger_charging_state
+    internal: true
     register_type: holding
   # 15204 reserved
   - platform: modbus_controller
@@ -345,7 +348,7 @@ sensor:
     register_type: holding
     name: "Inverter Work State"
     id: inverter_work_state
-
+    internal: true
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25205
@@ -360,7 +363,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25206
-    name: "Inverter Load Voltage"
+    name: "Inverter Load AC Voltage"
     register_type: holding
     unit_of_measurement: "V"
     device_class: voltage
@@ -424,34 +427,6 @@ sensor:
     unit_of_measurement: "W"
     device_class: "power"
 
-  # --- Voltages ---
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    name: "Inverter# Inverter Battery Voltage"
-    address: 25205
-    register_type: holding
-    value_type: S_WORD
-    unit_of_measurement: "V"
-    accuracy_decimals: 1
-    device_class: "voltage"
-    filters:
-      - multiply: 0.1
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    name: "Inverter# Inverter Voltage"
-    address: 25206
-    register_type: holding
-    value_type: S_WORD
-    unit_of_measurement: "V"
-    accuracy_decimals: 1
-    device_class: "voltage"
-    filters:
-      - multiply: 0.1
-
-
-
-
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25211
@@ -467,7 +442,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25212
-    name: "Inverter Load current"
+    name: "Inverter Load AC Current"
     register_type: holding
     unit_of_measurement: "A"
     device_class: current
@@ -551,7 +526,7 @@ sensor:
     address: 25221
     register_type: holding
     value_type: S_WORD
-    unit_of_measurement: "var"
+    unit_of_measurement: "VAR"
     device_class: "reactive_power"
 
   - platform: modbus_controller
@@ -560,7 +535,7 @@ sensor:
     address: 25222
     register_type: holding
     value_type: S_WORD
-    unit_of_measurement: "var"
+    unit_of_measurement: "VAR"
     device_class: "reactive_power"
 
   - platform: modbus_controller
@@ -569,7 +544,7 @@ sensor:
     address: 25223
     register_type: holding
     value_type: S_WORD
-    unit_of_measurement: "var"
+    unit_of_measurement: "VAR"
     device_class: "reactive_power"
     reuse_previous_range: false
 
@@ -597,18 +572,11 @@ sensor:
 
 
 
-
-
-
-
-
-
-    # MOST INFO
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25225
     register_type: holding
-    name: "Inverter Output frequency"
+    name: "Inverter Load AC Frequency"
     unit_of_measurement: "Hz"
     device_class: frequency
     accuracy_decimals: 2
@@ -618,7 +586,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 25226
     register_type: holding
-    name: "Inverter Grid frequency"
+    name: "Inverter Grid AC Frequency"
     unit_of_measurement: "Hz"
     device_class: frequency
     accuracy_decimals: 2
@@ -630,7 +598,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 25233
     register_type: holding
-    name: "Inverter AC radiator temp"
+    name: "Inverter AC radiator temperature"
     accuracy_decimals: 1
     unit_of_measurement: "°C"
     device_class: temperature
@@ -639,7 +607,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 25234
     register_type: holding
-    name: "Inverter Transformer temp"
+    name: "Inverter Transformer temperature"
     unit_of_measurement: "°C"
     device_class: temperature
     accuracy_decimals: 1
@@ -648,7 +616,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 25235
     register_type: holding
-    name: "Inverter DC Radiator temp"
+    name: "Inverter DC Radiator temperature"
     unit_of_measurement: "°C"
     device_class: temperature
     accuracy_decimals: 1
@@ -727,7 +695,7 @@ sensor:
     filters:
       multiply: 0.1
   - platform: template
-    name: "Inverter accumulated discharger power"
+    name: "Inverter Accumulated Discharge Power"
     unit_of_measurement: kWh
     device_class: energy
     accuracy_decimals: 1
@@ -750,7 +718,7 @@ sensor:
     filters:
       multiply: 0.1
   - platform: template
-    name: "Inverter accumulated buy power"
+    name: "Inverter Accumulated Buy Power"
     unit_of_measurement: kWh
     device_class: energy
     lambda: |-
@@ -774,7 +742,7 @@ sensor:
     filters:
       multiply: 0.1
   - platform: template
-    name: "Inverter accumulated sell power"
+    name: "Inverter Accumulated Sell Power"
     unit_of_measurement: kWh
     accuracy_decimals: 1
     lambda: !lambda return (id(sell_mwh).state * 1000.0 + id(sell_kwh).state);
@@ -857,7 +825,7 @@ sensor:
     reuse_previous_range: false
 
   - platform: template
-    name: "Inverter accumulated load power"
+    name: "Inverter Accumulated Load Power"
     unit_of_measurement: kWh
     device_class: energy
     accuracy_decimals: 1
@@ -867,7 +835,7 @@ sensor:
     address: 25273
     register_type: holding
     value_type: S_WORD
-    name: "Inverter Battery power"
+    name: "Inverter Battery Power"
     unit_of_measurement: "W"
     device_class: power
     accuracy_decimals: 0
@@ -877,7 +845,7 @@ sensor:
     address: 25274
     register_type: holding
     value_type: S_WORD
-    name: "Inverter Battery current"
+    name: "Inverter Battery Current"
     unit_of_measurement: "A"
     device_class: current
     accuracy_decimals: 1
@@ -898,7 +866,7 @@ sensor:
     id: raw_register_20142
     register_type: holding
     address: 20142
-    internal: true
+    name: "!!!! Sensor 20142"
 
   # уровень вайфай сигнала
   - platform: wifi_signal
@@ -908,7 +876,7 @@ sensor:
     id: wifi_sig
     update_interval: 60s
     filters:
-      - lambda: return x + 100.0;
+      multiply: 100
     unit_of_measurement: "%"
 
 
@@ -988,11 +956,11 @@ text_sensor:
         case 0:  return {"Off / Idle"};
         case 1:  return {"Active"};
         case 2:  return {"Current Limiting"};
-        default: return "Unknown PV Charger MPPT status value (" + to_string(raw_state) + ")";
+        default: return "Unknown PV Charger MPPT state value (" + to_string(raw_state) + ")";
       }
 
   - platform: template
-    name: "Inverter PV Charger work mode"
+    name: "Inverter PV Charger Work Mode"
     id: pv_charger_work_mode
     icon: "mdi:solar-power-variant"
     update_interval: 10s
@@ -1004,7 +972,7 @@ text_sensor:
         case 2:  return {"PV Charging"};
         case 3:  return {"Charging Complete"};
         case 4:  return {"Stop / Fault"};
-        default: return "Unknown PV Charger work status value (" + to_string(raw_state) + ")";
+        default: return "Unknown PV Charger work state value (" + to_string(raw_state) + ")";
       }
 
 select:
@@ -1012,7 +980,7 @@ select:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     id: energy_use_mode
-    name: "Inverter Energy use mode"
+    name: "Inverter Energy Use Mode"
     address: 20109
     optionsmap:
       "SBU (Solar/battery/utility)": 1
@@ -1023,7 +991,7 @@ select:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     id: charger_source_priority
-    name: "Inverter Charger source priority"
+    name: "Inverter Charger Source Priority"
     address: 20143
     optionsmap:
       "CSO (Solar first)": 0
@@ -1034,7 +1002,7 @@ select:
     modbus_controller_id: must_inverter
     address: 20111
     id: inverter_ac_input_voltage_range
-    name: "Inverter AC input voltage range"
+    name: "Inverter AC input Voltage Range"
     optionsmap:
       "VDE (184-253 VAC)": 0
       "UPS (170-280 VAC)": 1
@@ -1045,7 +1013,7 @@ number:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     id: batt_float_voltage
-    name: "Inverter PV Charger Float voltage"
+    name: "Inverter PV Charger Floating Voltage"
     unit_of_measurement: "V"
     icon: mdi:current-dc
     device_class: voltage
@@ -1053,12 +1021,13 @@ number:
     value_type: U_WORD
     min_value: 53
     max_value: 56
+    step: 0.1
     multiply: 10
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     id: batt_absorb_voltage
-    name: "Inverter PV Charger Absorb voltage"
+    name: "Inverter PV Charger Absorption Voltage"
     unit_of_measurement: "V"
     icon: mdi:current-dc
     device_class: voltage
@@ -1066,6 +1035,7 @@ number:
     value_type: U_WORD
     min_value: 53
     max_value: 56
+    step: 0.1
     multiply: 10
 
   - platform: modbus_controller
@@ -1079,9 +1049,8 @@ number:
     value_type: U_WORD
     min_value: 48
     max_value: 50
-    lambda: "return x * 0.1; "
-    write_lambda: |-
-      return x * 10 ;
+    step: 0.1
+    multiply: 10
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -1095,6 +1064,7 @@ number:
     address: 20119
     value_type: U_WORD
     multiply: 10
+    step: 0.1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -1108,6 +1078,7 @@ number:
     multiply: 10
     min_value: 48
     max_value: 50
+    step: 0.1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -1121,6 +1092,7 @@ number:
     multiply: 10
     min_value: 54
     max_value: 56
+    step: 0.1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -1132,5 +1104,6 @@ number:
     address: 20132
     value_type: U_WORD
     multiply: 10
-    min_value: 2
+    min_value: 1
     max_value: 120
+    step: 1
