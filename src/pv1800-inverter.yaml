@@ -160,6 +160,7 @@ switch:
     bitmask: 0x0080 # Bit 7
 
 sensor:
+    # charger sensors
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 10103
@@ -290,6 +291,7 @@ sensor:
     address: 15214
     register_type: holding
     name: "Inverter Warning Messages Count"
+    # 15215, 15216
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15217
@@ -342,6 +344,8 @@ sensor:
     accuracy_decimals: 0
     icon: mdi:flash
     reuse_previous_range: false
+
+    # inverter sensors
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25201
@@ -349,6 +353,7 @@ sensor:
     name: "Inverter Work State"
     id: inverter_work_state
     internal: true
+    #25204 reserved
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25205
@@ -371,7 +376,6 @@ sensor:
     icon: mdi:sine-wave
     filters:
       multiply: 0.1
-
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25207
@@ -395,7 +399,17 @@ sensor:
     icon: mdi:current-dc
     filters:
       multiply: 0.1
-
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25209
+    name: "Inverter Control current"
+    register_type: holding
+    unit_of_measurement: "A"
+    accuracy_decimals: 1
+    device_class: current
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25210
@@ -426,6 +440,7 @@ sensor:
     value_type: S_WORD
     unit_of_measurement: "W"
     device_class: "power"
+    icon: mdi:shield-flash
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -480,7 +495,7 @@ sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
-    name: "Inverter Load Percentage"
+    name: "Inverter System Load"
     address: 25216
     register_type: holding
     value_type: S_WORD
@@ -513,7 +528,7 @@ sensor:
     value_type: S_WORD
     unit_of_measurement: "VA"
     device_class: "apparent_power"
-
+    #25220 reserved
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     name: "Inverter Inner Reactive Power"
@@ -541,7 +556,7 @@ sensor:
     unit_of_measurement: "VAR"
     device_class: "reactive_power"
     reuse_previous_range: false
-
+    #25224 reserved
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25225
@@ -627,23 +642,6 @@ sensor:
     register_type: holding
     name: "Inverter Relay state Earth"
     icon: mdi:electric-switch
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25245
-    register_type: holding
-    id: xxx1_mwh
-    unit_of_measurement: MWh
-    device_class: energy
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25246
-    register_type: holding
-    id: xxx1_kwh
-    unit_of_measurement: kWh
-    device_class: energy
-    filters:
-      multiply: 0.1
 
   # Inverter Accumulated discharge power
   - platform: modbus_controller
@@ -735,59 +733,6 @@ sensor:
     internal: true
     filters:
       multiply: 0.1
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25255
-    register_type: holding
-    id: xxx2_mwh
-    unit_of_measurement: MWh
-    device_class: energy
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25256
-    register_type: holding
-    id: xx2_kwh
-    unit_of_measurement: kWh
-    device_class: energy
-    filters:
-      multiply: 0.1
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25257
-    register_type: holding
-    id: xxx3_mwh
-    unit_of_measurement: MWh
-    device_class: energy
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25258
-    register_type: holding
-    id: xx3_kwh
-    unit_of_measurement: kWh
-    device_class: energy
-    filters:
-      multiply: 0.1
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25259
-    register_type: holding
-    id: xxx4_mwh
-    unit_of_measurement: MWh
-    device_class: energy
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 25260
-    register_type: holding
-    id: xx4_kwh
-    unit_of_measurement: kWh
-    device_class: energy
-    filters:
-      multiply: 0.1
-    reuse_previous_range: false
-
   - platform: template
     name: "Inverter Accumulated Load Power"
     unit_of_measurement: kWh
@@ -823,7 +768,6 @@ sensor:
     unit_of_measurement: "V"
     device_class: voltage
     icon: mdi:alpha-V
-    reuse_previous_range: false
 
   # уровень вайфай сигнала
   - platform: wifi_signal
@@ -888,7 +832,6 @@ text_sensor:
     name: "Inverter Work Mode"
     id: inverter_work_mode
     icon: "mdi:solar-power"
-    update_interval: 10s
     lambda: |-
       int raw_state = id(inverter_work_state).state;
       switch(raw_state) {

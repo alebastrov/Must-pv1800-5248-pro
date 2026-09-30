@@ -573,6 +573,18 @@ sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
+    address: 25209
+    name: "Inverter Control current"
+    register_type: holding
+    unit_of_measurement: "A"
+    accuracy_decimals: 1
+    device_class: current
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
     address: 25210
     name: "Inverter Control Current"
     register_type: holding
@@ -601,6 +613,7 @@ sensor:
     value_type: S_WORD
     unit_of_measurement: "W"
     device_class: "power"
+    icon: mdi:shield-flash
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -1451,6 +1464,7 @@ select:
     load_config_preset:
       name: "BMS Load Config Preset"
 
+number:
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     id: batt_float_voltage
@@ -1548,7 +1562,7 @@ select:
     min_value: 1
     max_value: 120
     step: 1
-number:
+
   - platform: jk_bms_ble
     jk_bms_ble_id: bms0
     balance_trigger_voltage:

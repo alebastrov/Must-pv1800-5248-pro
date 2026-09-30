@@ -1,6 +1,8 @@
 # Must-pv1800-5248-pro
 
-created inspired by https://github.com/taHC81/MUST-ESPhome
+inspired by:
+    https://github.com/taHC81/MUST-ESPhome
+    https://github.com/vladyspavlov/esphome-must-inverter
 
 pv1800-inverter is a true RS-485 esp32 client device:
 To build use TTL-TO-RS485 converter board and esp32 board. 
