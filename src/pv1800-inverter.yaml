@@ -80,7 +80,7 @@ modbus_controller:
 
   - id: must_inverter_slow
     address: 0x04           # Uses the exact same Modbus slave address
-    modbus_id: modbus_0_slow
+    modbus_id: modbus_0
     update_interval: 15min # Reads only once every 15 minutes!
 
 
