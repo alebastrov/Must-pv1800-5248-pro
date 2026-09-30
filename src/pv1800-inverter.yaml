@@ -1,0 +1,1130 @@
+# Board: NodeMCU-32S (NodeMCU)
+# Definition: definitions/boards/nodemcu-32s/manifest.yaml
+
+esphome:
+  name: must-pv1800
+  friendly_name: MUST pv1800
+
+esp32:
+  variant: ESP32
+  board: nodemcu-32s
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+api:
+  encryption:
+    key: "QH6ezYpMxSAzm8qHo1hbwjpCY1EM/hKUbNftqaC3vwE="
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: "Diamond"
+    password: astalavista
+
+captive_portal:
+
+logger:
+  level: INFO
+  hardware_uart: UART0
+  logs:
+    modbus: INFO
+    modbus_controller: INFO
+
+substitutions:
+  inverter_id: inverter1
+  updates_inverter: 15s
+
+#status_led:
+#  pin:
+#    number: GPIO2
+#    inverted: false
+
+web_server:
+  port: 80
+  local: true
+
+
+# Registers the LED to flash automatically on system activity
+status_led:
+  pin: GPIO2
+
+uart:
+  - id: uart_inverter
+    baud_rate: 19200
+    rx_buffer_size: 384
+    tx_pin: GPIO23 #17
+    rx_pin: GPIO22 #16
+    stop_bits: 1
+    parity: NONE
+
+modbus:
+  - id: modbus_0
+    uart_id: uart_inverter
+    send_wait_time: 2500ms
+    turnaround_time: 150ms
+
+modbus_controller:
+  - id: must_inverter
+    address: 0x04
+    modbus_id: modbus_0
+    setup_priority: -10
+    max_cmd_retries: 1
+    update_interval: ${updates_inverter}
+    command_throttle: 150ms
+
+
+
+
+  #  Bit 0  OverLoadRestartForbid   Prevents the inverter from auto-restarting after an overload fault.
+  #  Bit 1  OverTempRestartForbid   Prevents the inverter from auto-restarting after an over-temperature fault.
+  #  Bit 2  OverLoadBypassForbid    Forbids switching to bypass mode when an overload occurs.
+  #  Bit 3  AutoTurnPageFlagForbid  Disables the automatic scrolling/turning of pages on the LCD screen.
+  #  Bit 4  GridBuzzEnable          Enables the buzzer/alarm specifically when connected to Grid/Utility power (PV1800 specific).
+  #  Bit 5  BuzzForbid              Completely mutes/disables the buzzer sound.
+  #  Bit 6  LcdLightEnable          Keeps the LCD backlight permanently illuminated when enabled.
+  #  Bit 7  RecordFaultForbid       Stops the inverter from saving or logging faults to its internal memory.
+switch:
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: Overload auto-restart disabled"
+    id: inverter_OverLoadRestartForbid
+    register_type: holding
+    address: 20142
+    bitmask: 0x0001
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: Over temperature auto-restart disabled"
+    id: inverter_OverTempRestartForbid
+    register_type: holding
+    address: 20142
+    bitmask: 0x0002 # Bit 1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: Go bypass when overload disabled"
+    id: inverter_OverLoadBypassForbid
+    register_type: holding
+    address: 20142
+    bitmask: 0x0004 # Bit 2
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: screen page scrolling disabled"
+    id: inverter_AutoTurnPageFlagForbid
+    register_type: holding
+    address: 20142
+    bitmask: 0x0008 # Bit 3
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: beeps when connected to grid disabled"
+    id: inverter_GridBuzzEnable
+    register_type: holding
+    address: 20142
+    bitmask: 0x0010 # Bit 4
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: beeps are disabled"
+    id: inverter_BuzzForbid
+    register_type: holding
+    address: 20142
+    bitmask: 0x0020 # Bit 5
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: screen backlight always on"
+    id: inverter_LcdLightEnable
+    register_type: holding
+    address: 20142
+    bitmask: 0x0040 # Bit 6
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter switch: saving errors disabled"
+    id: inverter_RecordFaultForbid
+    register_type: holding
+    address: 20142
+    bitmask: 0x0080 # Bit 7
+
+sensor:
+  # MUST PV1800 inverter
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 10103
+    register_type: holding
+    name: "Floating Charge Voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    filters:
+      multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 10105
+    register_type: holding
+    name: "Inverter Active Load Power"
+    unit_of_measurement: "W"
+    device_class: power
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 10107
+    register_type: holding
+    name: "Inverter Load Percentage"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    filters:
+      multiply: 0.01
+    reuse_previous_range: false
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15201
+    name: "PV Charger work state"
+    id: pv_charger_work_state
+    register_type: holding
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15202
+    name: "PV Charger MPPT state"
+    id: pv_charger_mppt_state
+    register_type: holding
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15203
+    name: "PV Charger Charging state"
+    id: pv_charger_charging_state
+    register_type: holding
+  # 15204 reserved
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15205
+    name: "PV Charger voltage"
+    register_type: holding
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15206
+    name: "PV Charger Battery voltage" # read value by PV charger, duplicated for inverter battery voltage
+    register_type: holding
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15207
+    name: "PV Charger current"
+    register_type: holding
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15208
+    register_type: holding
+    name: "PV Charger power"
+    id: pv_charger_power
+    unit_of_measurement: "W"
+    device_class: power
+    accuracy_decimals: 1
+    icon: mdi:flash
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15209
+    register_type: holding
+    id: pv_charger_radiator_temperature
+    name: "PV Charger radiator temp"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    accuracy_decimals: 1
+    icon: mdi:temperature-celsius
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15210
+    register_type: holding
+    name: "PV Charger external temp"
+    id: pv_charger_external_temperature
+    unit_of_measurement: "°C"
+    device_class: temperature
+    accuracy_decimals: 1
+    icon: mdi:temperature-celsius
+    # battery relay 15211
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15212
+    register_type: holding
+    name: "PV Relay"
+    icon: mdi:electric-switch
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15213
+    register_type: holding
+    name: "Error messages count"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15214
+    register_type: holding
+    name: "Warning messages count"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15217
+    register_type: holding
+    id: charger_total_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15218
+    register_type: holding
+    id: charger_total_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    internal: true
+    filters:
+      multiply: 0.1
+  - platform: template
+    name: "PV Charger Accumulated charger power"
+    unit_of_measurement: kWh
+    device_class: energy
+    lambda: !lambda 'return (id(charger_total_mwh).state * 1000.0 + id(charger_total_kwh).state );'
+    accuracy_decimals: 1
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15219
+    register_type: holding
+    name: "PV Charger Accumulated day"
+    unit_of_measurement: "Days"
+    device_class: duration
+    accuracy_decimals: 0
+    icon: mdi:flash
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15220
+    register_type: holding
+    name: "PV Charger Accumulated hour"
+    unit_of_measurement: "Hours"
+    device_class: duration
+    accuracy_decimals: 0
+    icon: mdi:flash
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 15221
+    register_type: holding
+    name: "PV Charger Accumulated minute"
+    unit_of_measurement: "Minutes"
+    device_class: duration
+    accuracy_decimals: 0
+    icon: mdi:flash
+    reuse_previous_range: false
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25201
+    register_type: holding
+    name: "Inverter Work state"
+    id: inverter_work_state
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25207
+    name: "Inverter Grid voltage"
+    register_type: holding
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25208
+    name: "Inverter Bus voltage"
+    register_type: holding
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25210
+    name: "Inverter current"
+    register_type: holding
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# AC Voltage Grade"
+    address: 25202
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: "voltage"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Rated Power"
+    address: 25203
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: "power"
+
+  # --- Voltages ---
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Inverter Battery Voltage"
+    address: 25205
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    device_class: "voltage"
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Inverter Voltage"
+    address: 25206
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    device_class: "voltage"
+    filters:
+      - multiply: 0.1
+
+
+
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25211
+    name: "Inverter Grid current"
+    register_type: holding
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25212
+    name: "Inverter Load current"
+    register_type: holding
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+    filters:
+      multiply: 0.1
+
+
+
+
+
+
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# P Inverter"
+    address: 25213
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: "power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# P Grid"
+    address: 25214
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: "power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# P Load"
+    address: 25215
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: "power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Load Percent"
+    address: 25216
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "%"
+
+  # --- Apparent Power ---
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# S Inverter"
+    address: 25217
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "VA"
+    device_class: "apparent_power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# S Grid"
+    address: 25218
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "VA"
+    device_class: "apparent_power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# S Load"
+    address: 25219
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "VA"
+    device_class: "apparent_power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Q Inverter"
+    address: 25221
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "var"
+    device_class: "reactive_power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Q Grid"
+    address: 25222
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "var"
+    device_class: "reactive_power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Q Load"
+    address: 25223
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "var"
+    device_class: "reactive_power"
+    reuse_previous_range: false
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Inverter Max Number"
+    address: 25229
+    register_type: holding
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Combine Type"
+    address: 25230
+    register_type: holding
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Inverter Number"
+    address: 25231
+    register_type: holding
+    value_type: U_WORD
+
+  # --- Temperatures ---
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# AC Radiator Temperature"
+    address: 25233
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: "temperature"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter# Transformer Temperature"
+    address: 25234
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: "temperature"
+    reuse_previous_range: false
+
+
+
+
+
+
+
+
+
+
+    # MOST INFO
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25225
+    register_type: holding
+    name: "Inverter Output frequency"
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    accuracy_decimals: 2
+    filters:
+      multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25226
+    register_type: holding
+    name: "Inverter Grid frequency"
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    accuracy_decimals: 2
+    filters:
+      multiply: 0.01
+    reuse_previous_range: false
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25233
+    register_type: holding
+    name: "Inverter AC radiator temp"
+    accuracy_decimals: 1
+    unit_of_measurement: "°C"
+    device_class: temperature
+    icon: mdi:temperature-celsius
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25234
+    register_type: holding
+    name: "Inverter Transformer temp"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    accuracy_decimals: 1
+    icon: mdi:temperature-celsius
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25235
+    register_type: holding
+    name: "Inverter DC Radiator temp"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    accuracy_decimals: 1
+    icon: mdi:temperature-celsius
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25237
+    register_type: holding
+    name: "Inverter Relay state"
+    icon: mdi:electric-switch
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25238
+    register_type: holding
+    name: "Inverter Relay state Grid"
+    icon: mdi:electric-switch
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25239
+    register_type: holding
+    name: "Inverter Relay state Load"
+    icon: mdi:electric-switch
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25240
+    register_type: holding
+    name: "Inverter Relay state NLine"
+    icon: mdi:electric-switch
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25241
+    register_type: holding
+    name: "Inverter Relay state DC"
+    icon: mdi:electric-switch
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25242
+    register_type: holding
+    name: "Inverter Relay state Earth"
+    icon: mdi:electric-switch
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25245
+    register_type: holding
+    id: xxx1_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25246
+    register_type: holding
+    id: xxx1_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    filters:
+      multiply: 0.1
+
+  # Inverter Accumulated discharge power
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25247
+    register_type: holding
+    id: discharger_total_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25248
+    register_type: holding
+    id: discharger_total_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    internal: true
+    filters:
+      multiply: 0.1
+  - platform: template
+    name: "Inverter accumulated discharger power"
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    lambda: !lambda 'return (id(discharger_total_mwh).state * 1000.0 + id(discharger_total_kwh).state);'
+  # Inverter Accumulated buy power since last reset
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25249
+    register_type: holding
+    id: buy_mwh
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25250
+    register_type: holding
+    id: buy_kwh
+    unit_of_measurement: MWh
+    device_class: energy
+    internal: true
+    filters:
+      multiply: 0.1
+  - platform: template
+    name: "Inverter accumulated buy power"
+    unit_of_measurement: kWh
+    device_class: energy
+    lambda: |-
+      return (id(buy_mwh).state * 1000.0 + id(buy_kwh).state);
+    accuracy_decimals: 1
+  # Inverter Accumulated sell power since last reset
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25251
+    register_type: holding
+    id: sell_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25252
+    register_type: holding
+    id: sell_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    filters:
+      multiply: 0.1
+  - platform: template
+    name: "Inverter accumulated sell power"
+    unit_of_measurement: kWh
+    accuracy_decimals: 1
+    lambda: !lambda return (id(sell_mwh).state * 1000.0 + id(sell_kwh).state);
+  # Inverter Accumulated load power
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25253
+    register_type: holding
+    id: load_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25254
+    register_type: holding
+    id: load_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    internal: true
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25255
+    register_type: holding
+    id: xxx2_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25256
+    register_type: holding
+    id: xx2_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    internal: true
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25257
+    register_type: holding
+    id: xxx3_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25258
+    register_type: holding
+    id: xx3_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    internal: true
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25259
+    register_type: holding
+    id: xxx4_mwh
+    unit_of_measurement: MWh
+    device_class: energy
+    internal: true
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25260
+    register_type: holding
+    id: xx4_kwh
+    unit_of_measurement: kWh
+    device_class: energy
+    internal: true
+    filters:
+      multiply: 0.1
+    reuse_previous_range: false
+
+  - platform: template
+    name: "Inverter accumulated load power"
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 1
+    lambda: !lambda return (id(load_mwh).state * 1000.0 + id(load_kwh).state);
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25273
+    register_type: holding
+    value_type: S_WORD
+    name: "Inverter Battery power" #живой в OFF GRID, часто 0 в Grid CHRG
+    unit_of_measurement: "W"
+    device_class: power
+    accuracy_decimals: 1
+    icon: mdi:flash
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25274
+    register_type: holding
+    value_type: S_WORD
+    name: "Inverter Battery current"
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 1
+    icon: mdi:current-dc
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25275
+    register_type: holding
+    value_type: S_WORD
+    name: "Inverter Battery grade"
+    unit_of_measurement: "V"
+    device_class: voltage
+    icon: mdi:alpha-V
+    reuse_previous_range: false
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: raw_register_20142
+    register_type: holding
+    address: 20142
+    internal: true
+
+  # уровень вайфай сигнала
+  - platform: wifi_signal
+    name: "WiFi signal:"
+    entity_category: diagnostic
+    device_class: signal_strength
+    id: wifi_sig
+    update_interval: 60s
+    filters:
+      - lambda: return x + 100.0;
+    unit_of_measurement: "%"
+
+
+text_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    bitmask: 0
+    register_type: holding
+    address: 25261
+    raw_encode: ANSI
+    name: "Inverter error message 1"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25262
+    raw_encode: ANSI
+    register_type: holding
+    name: "Inverter error message 2"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25263
+    raw_encode: ANSI
+    register_type: holding
+    name: "Inverter error message 3"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25265
+    register_type: holding
+    raw_encode: ANSI
+    name: "Inverter warning message 1"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    register_type: holding
+    address: 25266
+    raw_encode: ANSI
+    name: "Inverter warning message 2"
+
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+    ssid:
+      name: Device Connected SSID
+    bssid:
+      name: Device Connected BSSID
+    mac_address:
+      name: Device Mac Wifi Address
+
+  - platform: template
+    name: "Inverter Work Mode"
+    id: inverter_work_mode
+    icon: "mdi:solar-power"
+    update_interval: 10s
+    lambda: |-
+      int raw_state = id(inverter_work_state).state;
+      switch(raw_state) {
+        case 0:  return {"Power On / Initializing"};
+        case 1:  return {"Self-Test"};
+        case 2:  return {"Off-Grid"};
+        case 3:  return {"Grid-Tie"};
+        case 4:  return {"Bypass"};
+        case 5:  return {"Stop / Fault"};
+        case 6:  return {"Grid Charging"};
+        default: return "Unknown inverter work status value (" + to_string(raw_state) + ")";
+      }
+
+  - platform: template
+    name: "PV Charger MPPT Mode"
+    id: inverter_charger_mppt_mode
+    icon: "mdi:solar-power"
+    update_interval: 10s
+    lambda: |-
+      int raw_state = id(pv_charger_mppt_state).state;
+      switch(raw_state) {
+        case 0:  return {"Off / Idle"};
+        case 1:  return {"Active"};
+        case 2:  return {"Current Limiting"};
+        default: return "Unknown PV Charger MPPT status value (" + to_string(raw_state) + ")";
+      }
+
+  - platform: template
+    name: "PV Charger work mode"
+    id: pv_charger_work_mode
+    icon: "mdi:solar-power-variant"
+    update_interval: 10s
+    lambda: |-
+      int raw_state = id(pv_charger_work_state).state;
+      switch(raw_state) {
+        case 0:  return {"Off / Initializing"};
+        case 1:  return {"Standby"};
+        case 2:  return {"PV Charging"};
+        case 3:  return {"Charging Complete"};
+        case 4:  return {"Stop / Fault"};
+        default: return "Unknown PV Charger work status value (" + to_string(raw_state) + ")";
+      }
+
+select:
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: energy_use_mode
+    name: "Inverter Energy use mode"
+    address: 20109
+    optionsmap:
+      "SBU (Solar/battery/utility)": 1
+      "SUB (Solar/utility/battery)": 2
+      "UTI (Utility only)": 3
+      "SOL (Solar only)": 4
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: charger_source_priority
+    name: "Inverter Charger source priority"
+    address: 20143
+    optionsmap:
+      "CSO (Solar first)": 0
+      "SNU (Solar and utility)": 2
+      "OSO (Solar only)": 3
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 20111
+    id: inverter_ac_input_voltage_range
+    name: "Inverter AC input voltage range"
+    optionsmap:
+      "VDE (184-253 VAC)": 0
+      "UPS (170-280 VAC)": 1
+      "APL (90-280 VAC)": 2
+      "GEN (Generator)": 3
+
+number:
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: batt_float_voltage
+    name: "PV Charger Float voltage"
+    unit_of_measurement: "V"
+    icon: mdi:current-dc
+    device_class: voltage
+    address: 10103
+    value_type: U_WORD
+    min_value: 53
+    max_value: 56
+    multiply: 10
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: batt_absorb_voltage
+    name: "PV Charger Absorb voltage"
+    unit_of_measurement: "V"
+    icon: mdi:current-dc
+    device_class: voltage
+    address: 10104
+    value_type: U_WORD
+    min_value: 53
+    max_value: 56
+    multiply: 10
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: batt_stop_dischg
+    name: "Inverter Battery stop discharging voltage"
+    unit_of_measurement: "V"
+    icon: mdi:current-dc
+    device_class: voltage
+    address: 20118
+    value_type: U_WORD
+    min_value: 48
+    max_value: 50
+    lambda: "return x * 0.1; "
+    write_lambda: |-
+      return x * 10 ;
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: batt_stop_chg
+    name: "Inverter Battery stop charging voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    icon: mdi:current-dc
+    min_value: 54
+    max_value: 58
+    address: 20119
+    value_type: U_WORD
+    multiply: 10
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: batt_low_voltage
+    name: "Inverter Battery low voltage"
+    unit_of_measurement: "V"
+    icon: mdi:current-dc
+    device_class: voltage
+    address: 20127
+    value_type: U_WORD
+    multiply: 10
+    min_value: 48
+    max_value: 50
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    id: batt_high_voltage
+    name: "Inverter Battery high voltage"
+    unit_of_measurement: "V"
+    device_class: voltage
+    icon: mdi:current-dc
+    address: 20128
+    value_type: U_WORD
+    multiply: 10
+    min_value: 54
+    max_value: 56
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    name: "Inverter combined charger current"
+    unit_of_measurement: "A"
+    id: inverter_charger_current
+    icon: mdi:current-dc
+    register_type: holding
+    address: 20132
+    value_type: U_WORD
+    multiply: 10
+    min_value: 2
+    max_value: 80
