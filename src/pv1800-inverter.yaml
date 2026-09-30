@@ -11,10 +11,14 @@ esp32:
   flash_size: 4MB
   framework:
     type: esp-idf
+    advanced:
+      minimum_chip_revision: "3.1"
+      sram1_as_iram: true
 
 api:
   encryption:
     key: "QH6ezYpMxSAzm8qHo1hbwjpCY1EM/hKUbNftqaC3vwE="
+  reboot_timeout: 15min
 
 ota:
   - platform: esphome
@@ -62,17 +66,22 @@ uart:
 modbus:
   - id: modbus_0
     uart_id: uart_inverter
-    send_wait_time: 500ms
-    turnaround_time: 150ms
+    send_wait_time: 200ms
+    turnaround_time: 80ms
 
 modbus_controller:
   - id: must_inverter
     address: 0x04
     modbus_id: modbus_0
     setup_priority: -10
-    max_cmd_retries: 3
+    max_cmd_retries: 5
     update_interval: ${updates_inverter}
-    command_throttle: 100ms
+    command_throttle: 150ms
+
+  - id: must_inverter_slow
+    address: 0x04           # Uses the exact same Modbus slave address
+    modbus_id: modbus_0_slow
+    update_interval: 15min # Reads only once every 15 minutes!
 
 
 
@@ -87,7 +96,7 @@ modbus_controller:
   #  Bit 7  RecordFaultForbid       Stops the inverter from saving or logging faults to its internal memory.
 switch:
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: Overload auto-restart disabled"
     id: inverter_OverLoadRestartForbid
     register_type: holding
@@ -95,7 +104,7 @@ switch:
     bitmask: 0x0001 #Bit 0
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: Over temperature auto-restart disabled"
     id: inverter_OverTempRestartForbid
     register_type: holding
@@ -103,7 +112,7 @@ switch:
     bitmask: 0x0002 # Bit 1
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: Go bypass when overload disabled"
     id: inverter_OverLoadBypassForbid
     register_type: holding
@@ -111,7 +120,7 @@ switch:
     bitmask: 0x0004 # Bit 2
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: screen page scrolling disabled"
     id: inverter_AutoTurnPageFlagForbid
     register_type: holding
@@ -119,7 +128,7 @@ switch:
     bitmask: 0x0008 # Bit 3
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: beeps when connected to grid disabled"
     id: inverter_GridBuzzEnable
     register_type: holding
@@ -127,7 +136,7 @@ switch:
     bitmask: 0x0010 # Bit 4
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: beeps are disabled"
     id: inverter_BuzzForbid
     register_type: holding
@@ -135,7 +144,7 @@ switch:
     bitmask: 0x0020 # Bit 5
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: screen backlight always on"
     id: inverter_LcdLightEnable
     register_type: holding
@@ -143,7 +152,7 @@ switch:
     bitmask: 0x0040 # Bit 6
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter switch: saving errors disabled"
     id: inverter_RecordFaultForbid
     register_type: holding
@@ -152,7 +161,7 @@ switch:
 
 sensor:
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 10103
     register_type: holding
     name: "Inverter Charge Floating Voltage"
@@ -162,7 +171,7 @@ sensor:
     filters:
       multiply: 0.1
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 10104
     register_type: holding
     name: "Inverter Charge Absorption Voltage"
@@ -172,7 +181,7 @@ sensor:
     filters:
       multiply: 0.1
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 10105
     register_type: holding
     name: "Inverter Active Load Power"
@@ -183,7 +192,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 10107
     register_type: holding
-    name: "Inverter Load Percentage"
+    name: "Inverter Load Percentage #1"
     unit_of_measurement: "%"
     accuracy_decimals: 0
     filters:
@@ -258,7 +267,7 @@ sensor:
     address: 15209
     register_type: holding
     id: pv_charger_radiator_temperature
-    name: "!!!! Inverter PV Charger radiator temp"
+    name: "Inverter PV Charger Radiator temperature"
     unit_of_measurement: "°C"
     device_class: temperature
     accuracy_decimals: 1
@@ -267,7 +276,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 15210
     register_type: holding
-    name: "!!!! Inverter PV Charger external temp"
+    name: "Inverter PV Charger External temperature"
     id: pv_charger_external_temperature
     unit_of_measurement: "°C"
     device_class: temperature
@@ -281,17 +290,17 @@ sensor:
     name: "!!!! Inverter PV Relay"
     icon: mdi:electric-switch
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15213
     register_type: holding
     name: "Inverter Error Messages Count"
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15214
     register_type: holding
     name: "Inverter Warning Messages Count"
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15217
     register_type: holding
     id: charger_total_mwh
@@ -299,7 +308,7 @@ sensor:
     device_class: energy
     internal: true
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15218
     register_type: holding
     id: charger_total_kwh
@@ -315,7 +324,7 @@ sensor:
     lambda: !lambda 'return (id(charger_total_mwh).state * 1000.0 + id(charger_total_kwh).state );'
     accuracy_decimals: 1
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15219
     register_type: holding
     name: "Inverter PV Charger Accumulated day"
@@ -324,7 +333,7 @@ sensor:
     accuracy_decimals: 0
     icon: mdi:flash
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15220
     register_type: holding
     name: "Inverter PV Charger Accumulated hour"
@@ -409,7 +418,7 @@ sensor:
       multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter Grade AC Voltage"
     address: 25202
     register_type: holding
@@ -419,7 +428,7 @@ sensor:
     device_class: "voltage"
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     name: "Inverter Grade Rated Power"
     address: 25203
     register_type: holding
@@ -486,7 +495,7 @@ sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
-    name: "Inverter Load Percentage"
+    name: "Inverter Load Percentage #2"
     address: 25216
     register_type: holding
     value_type: S_WORD
@@ -598,7 +607,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 25233
     register_type: holding
-    name: "Inverter AC radiator temperature"
+    name: "Inverter AC Radiator temperature"
     accuracy_decimals: 1
     unit_of_measurement: "°C"
     device_class: temperature
@@ -659,14 +668,14 @@ sensor:
     icon: mdi:electric-switch
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25245
     register_type: holding
     id: xxx1_mwh
     unit_of_measurement: MWh
     device_class: energy
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25246
     register_type: holding
     id: xxx1_kwh
@@ -677,7 +686,7 @@ sensor:
 
   # Inverter Accumulated discharge power
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25247
     register_type: holding
     id: discharger_total_mwh
@@ -685,7 +694,7 @@ sensor:
     device_class: energy
     internal: true
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25248
     register_type: holding
     id: discharger_total_kwh
@@ -702,13 +711,13 @@ sensor:
     lambda: !lambda 'return (id(discharger_total_mwh).state * 1000.0 + id(discharger_total_kwh).state);'
   # Inverter Accumulated buy power since last reset
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25249
     register_type: holding
     id: buy_mwh
     internal: true
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25250
     register_type: holding
     id: buy_kwh
@@ -726,14 +735,14 @@ sensor:
     accuracy_decimals: 1
   # Inverter Accumulated sell power since last reset
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25251
     register_type: holding
     id: sell_mwh
     unit_of_measurement: MWh
     device_class: energy
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25252
     register_type: holding
     id: sell_kwh
@@ -748,7 +757,7 @@ sensor:
     lambda: !lambda return (id(sell_mwh).state * 1000.0 + id(sell_kwh).state);
   # Inverter Accumulated load power
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25253
     register_type: holding
     id: load_mwh
@@ -756,7 +765,7 @@ sensor:
     device_class: energy
     internal: true
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25254
     register_type: holding
     id: load_kwh
@@ -767,59 +776,53 @@ sensor:
       multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25255
     register_type: holding
     id: xxx2_mwh
     unit_of_measurement: MWh
     device_class: energy
-    internal: true
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25256
     register_type: holding
     id: xx2_kwh
     unit_of_measurement: kWh
     device_class: energy
-    internal: true
     filters:
       multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25257
     register_type: holding
     id: xxx3_mwh
     unit_of_measurement: MWh
     device_class: energy
-    internal: true
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25258
     register_type: holding
     id: xx3_kwh
     unit_of_measurement: kWh
     device_class: energy
-    internal: true
     filters:
       multiply: 0.1
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25259
     register_type: holding
     id: xxx4_mwh
     unit_of_measurement: MWh
     device_class: energy
-    internal: true
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25260
     register_type: holding
     id: xx4_kwh
     unit_of_measurement: kWh
     device_class: energy
-    internal: true
     filters:
       multiply: 0.1
     reuse_previous_range: false
@@ -851,7 +854,7 @@ sensor:
     accuracy_decimals: 1
     icon: mdi:current-dc
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25275
     register_type: holding
     value_type: S_WORD
@@ -860,13 +863,6 @@ sensor:
     device_class: voltage
     icon: mdi:alpha-V
     reuse_previous_range: false
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    id: raw_register_20142
-    register_type: holding
-    address: 20142
-    name: "!!!! Sensor 20142"
 
   # уровень вайфай сигнала
   - platform: wifi_signal
@@ -897,7 +893,7 @@ text_sensor:
     name: "Inverter error message 2"
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25263
     raw_encode: ANSI
     register_type: holding
@@ -911,7 +907,7 @@ text_sensor:
     name: "Inverter warning message 1"
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     register_type: holding
     address: 25266
     raw_encode: ANSI
@@ -989,7 +985,7 @@ select:
       "SOL (Solar only)": 4
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     id: charger_source_priority
     name: "Inverter Charger Source Priority"
     address: 20143
@@ -999,7 +995,7 @@ select:
       "OSO (Solar only)": 3
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 20111
     id: inverter_ac_input_voltage_range
     name: "Inverter AC input Voltage Range"

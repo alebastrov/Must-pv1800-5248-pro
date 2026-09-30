@@ -1,0 +1,729 @@
+substitutions:
+  mac_address: c8:47:80:13:ee:55
+
+external_components:
+  # - source:
+  #     type: git
+  #     url: https://github.com/syssi/esphome-jk-bms
+  #     ref: main
+  - source:
+      type: local
+      path: components
+      #url: https://github.com/syssi/esphome-jk-bms
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  level: INFO
+  hardware_uart: UART1
+  baud_rate: 19200
+
+web_server:
+  port: 80
+  local: true
+
+esphome:
+  name: esp32-s3
+  friendly_name: JK BMS
+
+esp32_ble_tracker:
+  scan_parameters:
+    duration: 5s
+    interval: 150ms
+    window: 120ms
+    active: true
+
+ble_client:
+  mac_address: ${mac_address}
+  id: client0
+
+jk_bms_ble:
+  - ble_client_id: client0
+    protocol_version: JK02_32S
+    throttle: 2s
+    id: bms0
+    update_interval: 2s
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  #use_address: 192.168.1.129
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "nWzWXgO5FZltgYLQihO93lVXDpBVkFvObnQz2FZFA60="
+  reboot_timeout: 15min # Prevents the ESP32 from rebooting if Wi-Fi glitches briefly
+
+ota:
+  - platform: esphome
+    encryption:
+
+preferences:
+  flash_write_interval: 60min
+
+
+time:
+  - platform: sntp
+    id: sntp_time
+    on_time:
+      # ==========================================
+      # DAILY CYCLE RESETS
+      # ==========================================
+      # CHARGE DAILY: Runs every night at 23:00
+      - seconds: 0
+        minutes: 0
+        hours: 23
+        then:
+          - sensor.template.publish:
+              id: bms_daily_charge_meter
+              state: 0.0
+
+      # DISCHARGE DAILY: Runs every morning at 07:00
+      - seconds: 0
+        minutes: 0
+        hours: 7
+        then:
+          - sensor.template.publish:
+              id: bms_daily_discharge_meter
+              state: 0.0
+
+      # ==========================================
+      # MONTHLY RESETS
+      # ==========================================
+      # CHARGE MONTHLY: Runs at 23:00 on the LAST day of every month
+      # (Clears out the old month right before the night charge window starts)
+      - seconds: 0
+        minutes: 0
+        hours: 23
+        days_of_month: 28,29,30,31
+        then:
+          # This lambda ensures it only fires if tomorrow is the 1st of the month
+          - lambda: |-
+              auto t = id(sntp_time).now();
+              t.increment_day();
+              if (t.day_of_month == 1) {
+                id(bms_monthly_charge_meter).publish_state(0.0);
+              }
+
+      # DISCHARGE MONTHLY: Runs at 07:00 on the 1st day of every month
+      # (Clears out the old month right before the morning discharge window starts)
+      - seconds: 0
+        minutes: 0
+        hours: 23
+        days_of_month: 1
+        then:
+          - sensor.template.publish:
+              id: bms_monthly_discharge_meter
+              state: 0.0
+
+      # ==========================================
+      # YEARLY RESETS
+      # ==========================================
+      # CHARGE YEARLY: Runs at 23:00 on December 31st
+      - seconds: 0
+        minutes: 0
+        hours: 23
+        days_of_month: 31
+        months: DEC
+        then:
+          - sensor.template.publish:
+              id: bms_yearly_charge_meter
+              state: 0.0
+
+      # DISCHARGE YEARLY: Runs at 07:00 on January 1st
+      - seconds: 0
+        minutes: 0
+        hours: 23
+        days_of_month: 1
+        months: JAN
+        then:
+          - sensor.template.publish:
+              id: bms_yearly_discharge_meter
+              state: 0.0
+
+
+#status_led:
+#  pin:
+#    number: GPIO2
+#    inverted: false
+button:
+  - platform: jk_bms_ble
+    retrieve_settings:
+      name: "retrieve settings"
+    retrieve_device_info:
+      name: "retrieve device info"
+    retrieve_logbook:
+      name: "retrieve logbook"
+    shutdown:
+      name: "shutdown"
+    restart:
+      name: "restart"
+    factory_reset:
+      name: "factory reset"
+
+switch:
+  - platform: jk_bms_ble
+    charging:
+      name: "charging"
+    discharging:
+      name: "discharging"
+    balancer:
+      name: "balancer"
+    emergency:
+      name: "emergency"
+    heating:
+      name: "heating"
+    disable_temperature_sensors:
+      name: "disable temperature sensors"
+    display_always_on:
+      name: "display always on"
+    smart_sleep:
+      name: "smart sleep"
+    disable_pcl_module:
+      name: "disable pcl module"
+    timed_stored_data:
+      name: "timed stored data"
+    charging_float_mode:
+      name: "charging float mode"
+    emergency_button_trigger:
+      name: "emergency button trigger"
+    dry_contact_alarm_intermittent:
+      name: "dry contact alarm intermittent"
+    discharge_overcurrent_protection_2:
+      name: "discharge overcurrent protection 2"
+
+  - platform: ble_client
+    ble_client_id: client0
+    name: "enable bluetooth connection"
+    id: ble_client_switch0
+
+binary_sensor:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: bms0
+    balancing:
+      name: "balancing"
+    charging:
+      name: "charging"
+    discharging:
+      name: "discharging"
+    heating:
+      name: "heating"
+    online_status:
+      name: "online status"
+    dry_contact_1:
+      name: "dry contact 1"
+    dry_contact_2:
+      name: "dry contact 2"
+
+globals:
+  - id: bms_last_valid_efficiency
+    type: float
+    restore_value: true
+    initial_value: '100.0'
+
+sensor:
+  # Lifetime Non-Resetting Discharge Accumulator
+  - platform: integration
+    name: "BMS Total Lifetime Discharge"
+    id: bms_total_lifetime_discharge
+    sensor: discharging_power_sensor # <-- Point to your raw discharge power sensor
+    time_unit: h
+    integration_method: left
+    accuracy_decimals: 1
+    unit_of_measurement: "Wh"
+    device_class: energy
+    icon: "mdi:lightning-bolt"
+
+  # Lifetime Non-Resetting Charge Accumulator
+  - platform: integration
+    name: "BMS Total Lifetime Charge"
+    id: bms_total_lifetime_charge
+    sensor: charging_power_sensor # <-- Point to your raw charge power sensor
+    time_unit: h
+    integration_method: left
+    accuracy_decimals: 1
+    device_class: energy
+    unit_of_measurement: "Wh"
+    icon: "mdi:battery-arrow-up"
+
+  - platform: homeassistant
+    entity_id: sensor.inverter_monitor_bms_capacity_remaining
+    id: capacity_remaining
+    internal: true
+    on_value:
+      then:
+        - component.update: precise_soc
+  - platform: homeassistant
+    entity_id: sensor.inverter_monitor_bms_full_charge_capacity
+    id: full_charge_capacity
+    internal: true
+    on_value:
+      then:
+        - component.update: precise_soc
+  - platform: homeassistant
+    entity_id: sensor.inverter_monitor_bms_state_of_charge
+    id: state_of_charge
+    internal: true
+    on_value:
+      then:
+        - component.update: precise_soc
+  - platform: template
+    name: "BMS SOC"
+    id: precise_soc
+    device_class: battery
+    state_class: total
+    unit_of_measurement: "%"
+    accuracy_decimals: 2
+    update_interval: 10s # Fallback timeframe to recalculate safely
+    lambda: |-
+      if (isnan(id(capacity_remaining).state) || isnan(id(full_charge_capacity).state)) {
+        if (!isnan(id(state_of_charge).state)) {
+          return id(state_of_charge).state;
+        }
+        return {}; // Return absolutely nothing (prevents "nan %" log spam)
+      }
+      if (id(capacity_remaining).state > 0 && id(full_charge_capacity).state > 0) {
+        return (id(capacity_remaining).state / id(full_charge_capacity).state) * 100.0;
+      }
+      if (!std::isnan(id(state_of_charge).state)) {
+        return id(state_of_charge).state; 
+      }
+      return {};
+
+  # JK BMS BLE
+  - platform: jk_bms_ble
+    jk_bms_ble_id: bms0
+    min_cell_voltage:
+      name: "BMS min cell voltage"
+    max_cell_voltage:
+      name: "BMS max cell voltage"
+    min_voltage_cell:
+      name: "BMS min voltage cell"
+    max_voltage_cell:
+      name: "BMS max voltage cell"
+    delta_cell_voltage:
+      name: "BMS delta cell voltage"
+    average_cell_voltage:
+      name: "BMS average cell voltage"
+    cell_voltage_1:
+      name: "BMS cell voltage 1"
+    cell_voltage_2:
+      name: "BMS cell voltage 2"
+    cell_voltage_3:
+      name: "BMS cell voltage 3"
+    cell_voltage_4:
+      name: "BMS cell voltage 4"
+    cell_voltage_5:
+      name: "BMS cell voltage 5"
+    cell_voltage_6:
+      name: "BMS cell voltage 6"
+    cell_voltage_7:
+      name: "BMS cell voltage 7"
+    cell_voltage_8:
+      name: "BMS cell voltage 8"
+    cell_voltage_9:
+      name: "BMS cell voltage 9"
+    cell_voltage_10:
+      name: "BMS cell voltage 10"
+    cell_voltage_11:
+      name: "BMS cell voltage 11"
+    cell_voltage_12:
+      name: "BMS cell voltage 12"
+    cell_voltage_13:
+      name: "BMS cell voltage 13"
+    cell_voltage_14:
+      name: "BMS cell voltage 14"
+    cell_voltage_15:
+      name: "BMS cell voltage 15"
+    cell_voltage_16:
+      name: "BMS cell voltage 16"
+    cell_resistance_1:
+      name: "BMS cell resistance 1"
+    cell_resistance_2:
+      name: "BMS cell resistance 2"
+    cell_resistance_3:
+      name: "BMS cell resistance 3"
+    cell_resistance_4:
+      name: "BMS cell resistance 4"
+    cell_resistance_5:
+      name: "BMS cell resistance 5"
+    cell_resistance_6:
+      name: "BMS cell resistance 6"
+    cell_resistance_7:
+      name: "BMS cell resistance 7"
+    cell_resistance_8:
+      name: "BMS cell resistance 8"
+    cell_resistance_9:
+      name: "BMS cell resistance 9"
+    cell_resistance_10:
+      name: "BMS cell resistance 10"
+    cell_resistance_11:
+      name: "BMS cell resistance 11"
+    cell_resistance_12:
+      name: "BMS cell resistance 12"
+    cell_resistance_13:
+      name: "BMS cell resistance 13"
+    cell_resistance_14:
+      name: "BMS cell resistance 14"
+    cell_resistance_15:
+      name: "BMS cell resistance 15"
+    cell_resistance_16:
+      name: "BMS cell resistance 16"
+    total_voltage:
+      name: "BMS battery voltage"
+    current:
+      name: "BMS battery current"
+    heating_current:
+      name: "BMS heating current"
+    power:
+      name: "BMS battery power"
+    charging_power:
+      name: "BMS battery charging power"
+      id: charging_power_sensor
+    discharging_power:
+      name: "BMS battery discharging power"
+      id: discharging_power_sensor
+    temperature_sensor_1:
+      name: "BMS battery temperature sensor 1"
+    temperature_sensor_2:
+      name: "BMS battery temperature sensor 2"
+    temperature_sensor_3:
+      name: "BMS battery temperature sensor 3"
+    temperature_sensor_4:
+      name: "BMS battery temperature sensor 4"
+    temperature_sensor_5:
+      name: "BMS battery temperature sensor 5"
+    mosfet_temperature:
+      name: "BMS MOSFET temperature"
+    balancer_status_bitmask:
+      name: "BMS balancer status"
+    state_of_charge:
+      name: "BMS state of charge"
+    state_of_health:
+      name: "BMS state of health"
+    capacity_remaining:
+      name: "BMS capacity remaining"
+    full_charge_capacity:
+      name: "BMS full charge capacity"
+    charging_cycles:
+      name: "BMS charging cycles"
+    total_charging_cycle_capacity:
+      name: "BMS total charging cycle capacity"
+    total_runtime:
+      name: "BMS total runtime"
+    power_on_count:
+      name: "BMS power on count"
+    balancing_current:
+      name: "BMS balancing current"
+    emergency_time_countdown:
+      name: "BMS emergency time countdown"
+    smart_sleep_countdown:
+      name: "BMS smart sleep countdown"
+    charge_status_id:
+      name: "BMS charge status id"
+    charge_status_time_elapsed:
+      name: "BMS charge status time elapsed"
+    detail_log_entry_count:
+      name: "BMS detail log entry count"
+    battery_type_id:
+      name: "BMS battery type id"
+
+  # уровень вайфай сигнала
+  - platform: wifi_signal
+    name: "WiFi signal:"
+    entity_category: diagnostic
+    device_class: signal_strength
+    id: wifi_sig
+    update_interval: 60s
+    filters:
+      - lambda: return x + 100.0;
+    unit_of_measurement: "%"
+
+  # ==================== DAILY METERS ====================
+  - platform: total_daily_energy
+    name: "BMS Daily Discharge Meter"
+    id: bms_daily_discharge_meter
+    power_id: discharging_power_sensor
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+    device_class: energy
+    restore: true
+    filters:
+      - multiply: 0.001 # Converts Watt-hours to kiloWatt-hours
+
+  - platform: total_daily_energy
+    name: "BMS Daily Charge Meter"
+    id: bms_daily_charge_meter
+    power_id: charging_power_sensor
+    unit_of_measurement: "kWh"
+    device_class: energy
+    restore: true
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001 # Converts Watt-hours to kiloWatt-hours
+
+    # ==================== MONTHLY METERS ====================
+  - platform: total_daily_energy
+    name: "BMS Monthly Discharge Meter"
+    id: bms_monthly_discharge_meter
+    power_id: discharging_power_sensor
+    unit_of_measurement: "kWh"
+    device_class: energy
+    accuracy_decimals: 3
+    restore: true
+    filters:
+      - multiply: 0.001
+
+  - platform: total_daily_energy
+    name: "BMS Monthly Charge Meter"
+    id: bms_monthly_charge_meter
+    power_id: charging_power_sensor
+    unit_of_measurement: "kWh"
+    device_class: energy
+    accuracy_decimals: 3
+    restore: true
+    filters:
+      - multiply: 0.001
+
+  # ==================== YEARLY METERS ====================
+  - platform: total_daily_energy
+    name: "BMS Yearly Discharge Meter"
+    id: bms_yearly_discharge_meter
+    power_id: discharging_power_sensor
+    unit_of_measurement: "kWh"
+    device_class: energy
+    accuracy_decimals: 3
+    restore: true
+    filters:
+      - multiply: 0.001
+
+  - platform: total_daily_energy
+    name: "BMS Yearly Charge Meter"
+    id: bms_yearly_charge_meter
+    power_id: charging_power_sensor
+    unit_of_measurement: "kWh"
+    device_class: energy
+    accuracy_decimals: 3
+    restore: true
+    filters:
+      - multiply: 0.001
+
+text_sensor:
+  - platform: jk_bms_ble
+    errors:
+      name: "BMS errors"
+    errors_bitmask_hex:
+      name: "BMS errors bitmask hex"
+    balancer_status:
+      name: "BMS balancer status"
+    total_runtime_formatted:
+      name: "BMS total runtime formatted"
+    charge_status:
+      name: "BMS charge status"
+    battery_type:
+      name: "BMS battery type"
+    manufacturing_date:
+      name: "BMS manufacturing date"
+    serial_number:
+      name: "BMS serial number"
+
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+      address_0:
+        name: Device IP Address 0
+    ssid:
+      name: Device Connected SSID
+    bssid:
+      name: Device Connected BSSID
+    mac_address:
+      name: Device Mac Wifi Address
+    dns_address:
+      name: Device DNS Address
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: bms0
+    software_version:
+      name: "JK-BMS Software Version"
+    hardware_version:
+      name: "JK-BMS Hardware Version"
+    device_model:
+      name: "JK-BMS Device Model"
+
+select:
+  - platform: jk_bms_ble
+    multiplexed_port_mode:
+      name: "BMS multiplexed port mode"
+    load_config_preset:
+      name: "BMS Load Config Preset"
+
+number:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: bms0
+    balance_trigger_voltage:
+      name: "BMS balance trigger voltage"
+      min_value: 0.002
+      max_value: 0.028
+      step: 0.001
+    cell_count:
+      name: "BMS cell count"
+    total_battery_capacity:
+      name: "BMS total battery capacity"
+    cell_voltage_overvoltage_protection:
+      name: "BMS cell voltage overvoltage protection"
+      min_value: 3.50
+      max_value: 3.65
+      step: 0.05
+    cell_voltage_overvoltage_recovery:
+      name: "BMS cell voltage overvoltage recovery"
+      min_value: 3.35
+      max_value: 3.50
+      step: 0.05
+    cell_voltage_undervoltage_protection:
+      name: "BMS cell voltage undervoltage protection"
+      min_value: 2.55
+      max_value: 2.85
+      step: 0.05
+    cell_voltage_undervoltage_recovery:
+      name: "BMS cell voltage undervoltage recovery"
+      min_value: 2.9
+      max_value: 3.0
+      step: 0.05
+    balancing_start_voltage:
+      name: "BMS balancing start voltage"
+      min_value: 2.9
+      max_value: 3.6
+      step: 0.01
+    voltage_calibration:
+      name: "BMS voltage calibration"
+    current_calibration:
+      name: "BMS current calibration"
+    power_off_voltage:
+      name: "BMS power off voltage"
+      min_value: 2.5
+      max_value: 2.6
+      step: 0.05
+    max_balance_current:
+      name: "BMS max balance current"
+      min_value: 0.0
+      max_value: 2.0
+      step: 0.1
+    max_charge_current:
+      name: "BMS max charge current"
+      min_value: 1.0
+      max_value: 150.0
+      step: 1
+    max_discharge_current:
+      name: "BMS max discharge current"
+      min_value: 1.0
+      max_value: 150.0
+      step: 1
+    smart_sleep_voltage:
+      name: "BMS smart sleep voltage"
+    smart_sleep_delay:
+      name: "BMS smart sleep delay"
+    emergency_duration:
+      name: "BMS emergency duration"
+    cell_soc100_voltage:
+      name: "BMS cell soc100 voltage"
+      min_value: 3.3
+      max_value: 3.5
+      step: 0.025
+    cell_soc0_voltage:
+      name: "BMS cell soc0 voltage"
+      min_value: 2.8
+      max_value: 3.1
+      step: 0.025
+    cell_request_charge_voltage:
+      name: "BMS cell request charge voltage"
+      min_value: 3.35
+      max_value: 3.65
+      step: 0.025
+    cell_request_float_voltage:
+      name: "BMS cell request float voltage"
+      min_value: 3.4
+      max_value: 3.55
+      step: 0.025
+    cell_request_charge_voltage_time:
+      name: "BMS cell request charge voltage time"
+    cell_request_float_voltage_time:
+      name: "BMS cell request float voltage time"
+    charge_overcurrent_protection_delay:
+      name: "BMS charge overcurrent protection delay"
+    charge_overcurrent_protection_recovery_time:
+      name: "BMS charge overcurrent protection recovery time"
+    discharge_overcurrent_protection_delay:
+      name: "BMS discharge overcurrent protection delay"
+    discharge_overcurrent_protection_recovery_time:
+      name: "BMS discharge overcurrent protection recovery time"
+    short_circuit_protection_delay:
+      name: "BMS short circuit protection delay"
+    short_circuit_protection_recovery_time:
+      name: "BMS short circuit protection recovery time"
+    charge_overtemperature_protection:
+      name: "BMS charge overtemperature protection"
+      min_value: 39
+      max_value: 50
+      step: 1
+    charge_overtemperature_protection_recovery:
+      name: "BMS charge overtemperature protection recovery"
+      min_value: 25
+      max_value: 35
+      step: 1
+    discharge_overtemperature_protection:
+      name: "BMS discharge overtemperature protection"
+      min_value: 40
+      max_value: 55
+      step: 1
+    discharge_overtemperature_protection_recovery:
+      name: "BMS discharge overtemperature protection recovery"
+      min_value: 25
+      max_value: 35
+      step: 1
+    charge_undertemperature_protection:
+      name: "BMS charge undertemperature protection"
+      min_value: 7
+      max_value: 15
+      step: 1
+    charge_undertemperature_protection_recovery:
+      name: "BMS charge undertemperature protection recovery"
+      min_value: 16
+      max_value: 20
+      step: 1
+    discharge_undertemperature_protection:
+      name: "BMS discharge undertemperature protection"
+      min_value: -5
+      max_value: 7
+      step: 1
+    discharge_undertemperature_protection_recovery:
+      name: "BMS discharge undertemperature protection recovery"
+      min_value: 8
+      max_value: 15
+      step: 1
+    mosfet_overtemperature_protection:
+      name: "BMS mosfet overtemperature protection"
+      min_value: 75
+      max_value: 100
+      step: 1
+    mosfet_overtemperature_protection_recovery:
+      name: "BMS mosfet overtemperature protection recovery"
+      min_value: 45
+      max_value: 74
+      step: 1
+    discharge_precharge_time:
+      name: "BMS discharge precharge time"
+    heating_start_temperature:
+      name: "BMS heating start temperature"
+      min_value: -20.0
+      max_value: 19.0
+      step: 1
+    heating_stop_temperature:
+      name: "BMS heating stop temperature"
+      min_value: 12
+      max_value: 24
+      step: 1
