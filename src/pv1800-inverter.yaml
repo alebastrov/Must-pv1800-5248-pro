@@ -408,7 +408,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25210
-    name: "Inverter current"
+    name: "Inverter Control Current"
     register_type: holding
     unit_of_measurement: "A"
     device_class: current
@@ -866,13 +866,13 @@ sensor:
 
   # уровень вайфай сигнала
   - platform: wifi_signal
-    name: "Inverter WiFi signal:"
+    name: "Inverter WiFi signal"
     entity_category: diagnostic
     device_class: signal_strength
     id: wifi_sig
     update_interval: 60s
     filters:
-      multiply: 100
+      - lambda: return x + 100.0;
     unit_of_measurement: "%"
 
 
