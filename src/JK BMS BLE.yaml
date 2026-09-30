@@ -147,10 +147,6 @@ time:
               state: 0.0
 
 
-#status_led:
-#  pin:
-#    number: GPIO2
-#    inverted: false
 button:
   - platform: jk_bms_ble
     retrieve_settings:
