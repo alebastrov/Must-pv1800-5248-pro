@@ -92,7 +92,7 @@ uart:
 modbus:
   - id: modbus_0
     uart_id: uart_inverter
-    send_wait_time: 200ms
+    send_wait_time: 250ms
     turnaround_time: 80ms
 
 modbus_controller:
@@ -100,7 +100,7 @@ modbus_controller:
     address: 0x04
     modbus_id: modbus_0
     setup_priority: -10
-    max_cmd_retries: 5
+    max_cmd_retries: 3
     update_interval: ${updates_inverter}
     command_throttle: 150ms
 
@@ -1534,17 +1534,15 @@ text_sensor:
 
   - platform: wifi_info
     ip_address:
-      name: Device IP Address
-      address_0:
-        name: Device IP Address 0
+      name: Inverter WiFi IP Address
     ssid:
-      name: Device Connected SSID
+      name: Inverter WiFi Connected SSID
     bssid:
-      name: Device Connected BSSID
+      name: Inverter WiFi Connected BSSID
     mac_address:
-      name: Device Mac Wifi Address
+      name: Inverter WiFi Mac Address
     dns_address:
-      name: Device DNS Address
+      name: Inverter WiFi DNS Address
 
   - platform: jk_bms_ble
     jk_bms_ble_id: bms0
