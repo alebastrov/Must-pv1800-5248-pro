@@ -3,8 +3,8 @@
 substitutions:
   mac_address: c8:47:80:13:ee:55
   inverter_id: inverter1
-  updates_inverter: 2500ms
-  updates_bms: 2500ms
+  updates_inverter: 2000ms
+  updates_bms: 2000ms
 
 external_components:
   # - source:
@@ -370,6 +370,13 @@ binary_sensor:
     device_class: opening
   - platform: modbus_controller
     modbus_controller_id: must_inverter
+    address: 15212
+    register_type: holding
+    name: "Inverter Relay Status PV"
+    icon: mdi:electric-switch
+    device_class: opening
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
     address: 25238
     register_type: holding
     name: "Inverter Relay Status Grid"
@@ -414,7 +421,7 @@ binary_sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Arrow: Output"
+    name: "Inverter Arrow: Load"
     address: 25279
     register_type: holding
     bitmask: 0x0002 # Bit 1
@@ -422,7 +429,7 @@ binary_sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Arrow: Battery to Machine"
+    name: "Inverter Arrow: Battery"
     address: 25279
     register_type: holding
     bitmask: 0x0004 # Bit 2
@@ -430,7 +437,7 @@ binary_sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Arrow: Grid to Machine"
+    name: "Inverter Arrow: Grid"
     address: 25279
     register_type: holding
     bitmask: 0x0008 # Bit 3
@@ -444,36 +451,8 @@ binary_sensor:
     bitmask: 0x0010 # Bit 4
     icon: "mdi:arrow-right-bold-circle-outline"
 
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    name: "Inverter Arrow: Output to Load"
-    address: 25279
-    register_type: holding
-    bitmask: 0x0020 # Bit 5
-    icon: "mdi:arrow-right-bold-circle-outline"
-
 sensor:
   #Inverter Control Message
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20000
-    register_type: holding
-    name: "Inverter Type Of Machine High"
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20001
-    register_type: holding
-    name: "Inverter Type Of Machine Low"
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20002
-    register_type: holding
-    name: "Inverter S/N High"
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20003
-    register_type: holding
-    name: "Inverter S/N Low"
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 20004
@@ -599,13 +578,6 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
-    # battery relay 15211
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 15212
-    register_type: holding
-    name: "Inverter PV Relay"
-    icon: mdi:electric-switch
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15213
@@ -1420,6 +1392,66 @@ sensor:
       - multiply: 0.001
 
 text_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Arrow: Battery Use"
+    address: 25279
+    register_type: holding
+    bitmask: 0x00C0       # Masks bits 6 and 7, automatically shifting them right
+    raw_encode: HEXBYTES  # Required when applying lambda logic on text sensor registers
+    lambda: |-
+      uint16_t value = modbus_controller::word_from_hex_str(x, 0); 
+
+      switch (value) {
+        case 0: return {"No Battery"};
+        case 1: return {"Machine to Battery"};
+        case 2: return {"Battery to Machine"};
+        case 3: return {"Battery"};
+        default: return {"Unknown"};
+      }
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Arrow: Grid Use"
+    address: 25279
+    register_type: holding
+    bitmask: 0x0300       # Masks bits 8 and 9, automatically shifting them right
+    raw_encode: HEXBYTES  # Required to process bitmapped states inside text lambdas
+    lambda: |-
+      uint16_t value = modbus_controller::word_from_hex_str(x, 0); 
+
+      switch (value) {
+        case 0: return {"No Grid"};
+        case 1: return {"Machine to Grid"};
+        case 2: return {"Grid to Machine"};
+        case 3: return {"Grid"};
+        default: return {"Unknown"};
+      }
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Machine Type"
+    address: 20000
+    register_type: holding
+    response_size: 4 # 2 registers = 4 bytes of total data
+    lambda: |-
+      // High register characters (e.g., 20566 -> 0x5056 -> 'P', 'V')
+      char high_char1 = data[0]; 
+      char high_char2 = data[1]; 
+
+      // Low register characters (e.g., 18488 -> 0x4838 -> '1', '8', and '00')
+      char low_char1 = data[2];  
+      char low_char2 = data[3];  
+
+      // 2. Format everything cleanly into an ASCII string output
+      char buffer[16];
+      if (std::isalnum(low_char1) && std::isalnum(low_char2)) {
+        snprintf(buffer, sizeof(buffer), "%c%c%c%c00", high_char1, high_char2, low_char1, low_char2);
+      } else {
+        // Fallback calculation helper if Low Register returns raw numerical short integer format 1800
+        uint16_t low_val = (data[2] << 8) | data[3];
+        snprintf(buffer, sizeof(buffer), "%c%c%d", high_char1, high_char2, low_val);
+      }
+      return {buffer};
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 20005
