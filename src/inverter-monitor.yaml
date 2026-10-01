@@ -3,8 +3,8 @@
 substitutions:
   mac_address: c8:47:80:13:ee:55
   inverter_id: inverter1
-  updates_inverter: 3s
-  updates_bms: 2s
+  updates_inverter: 2500ms
+  updates_bms: 2500ms
 
 external_components:
   # - source:
@@ -92,7 +92,7 @@ uart:
 modbus:
   - id: modbus_0
     uart_id: uart_inverter
-    send_wait_time: 250ms
+    send_wait_time: 200ms
     turnaround_time: 80ms
 
 modbus_controller:
@@ -100,7 +100,7 @@ modbus_controller:
     address: 0x04
     modbus_id: modbus_0
     setup_priority: -10
-    max_cmd_retries: 3
+    max_cmd_retries: 5
     update_interval: ${updates_inverter}
     command_throttle: 150ms
 
@@ -408,13 +408,13 @@ binary_sensor:
     modbus_controller_id: must_inverter_slow
     address: 25279
     register_type: holding
-    name: "Inverter PV Flag"
+    name: "Inverter Arrow: PV"
     bitmask: 0x0001 # Bit 0
     icon: "mdi:solar-power"
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Load Flag"
+    name: "Inverter Arrow: Output"
     address: 25279
     register_type: holding
     bitmask: 0x0002 # Bit 1
@@ -422,7 +422,7 @@ binary_sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Battery Flag"
+    name: "Inverter Arrow: Battery to Machine"
     address: 25279
     register_type: holding
     bitmask: 0x0004 # Bit 2
@@ -430,7 +430,7 @@ binary_sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Grid Flag"
+    name: "Inverter Arrow: Grid to Machine"
     address: 25279
     register_type: holding
     bitmask: 0x0008 # Bit 3
@@ -446,7 +446,7 @@ binary_sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Arrow: Machine to Load"
+    name: "Inverter Arrow: Output to Load"
     address: 25279
     register_type: holding
     bitmask: 0x0020 # Bit 5
@@ -484,12 +484,6 @@ sensor:
     address: 20005
     register_type: holding
     name: "Inverter Software version"
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20005
-    register_type: holding
-    name: "Inverter Communication Protocol version"
-
 
   #Inverter Display Message
   - platform: modbus_controller
@@ -1066,6 +1060,14 @@ sensor:
     icon: mdi:current-dc
     reuse_previous_range: false
 
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    id: protocol_version_raw
+    address: 20005
+    register_type: holding
+    internal: true
+    name: "Inverter Communication Protocol version raw"
+
   # уровень вайфай сигнала
   - platform: wifi_signal
     name: "Inverter WiFi signal"
@@ -1418,6 +1420,21 @@ sensor:
       - multiply: 0.001
 
 text_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20005
+    register_type: holding
+    name: "Inverter Communication Protocol version"
+    icon: "mdi:code-braces"
+    lambda: |-
+      int value = id(protocol_version_raw).state;
+      int major = value / 10000;
+      int minor = (value / 100) % 100;
+      int patch = value % 100;
+      
+      char buffer[16];
+      sprintf(buffer, "%d.%02d.%02d", major, minor, patch);
+      return {buffer};
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     bitmask: 0
