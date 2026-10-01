@@ -295,6 +295,12 @@ switch:
     bitmask: 0x0080
     icon: "mdi:database-lock"
 
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Reset Accumulated Values"
+    register_type: holding
+    address: 20213
+
   - platform: jk_bms_ble
     charging:
       name: "charging"
@@ -355,8 +361,177 @@ binary_sensor:
       name: "dry contact 1"
     dry_contact_2:
       name: "dry contact 2"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25237
+    register_type: holding
+    name: "Inverter Relay Status"
+    icon: mdi:electric-switch
+    device_class: opening
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25238
+    register_type: holding
+    name: "Inverter Relay Status Grid"
+    icon: mdi:electric-switch
+    device_class: opening
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25239
+    register_type: holding
+    name: "Inverter Relay Status Load"
+    icon: mdi:electric-switch
+    device_class: opening
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25240
+    register_type: holding
+    name: "Inverter Relay Status NLine"
+    icon: mdi:electric-switch
+    device_class: opening
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25241
+    register_type: holding
+    name: "Inverter Relay Status DC"
+    icon: mdi:electric-switch
+    device_class: opening
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25242
+    register_type: holding
+    name: "Inverter Relay Status Earth"
+    icon: mdi:electric-switch
+    device_class: opening
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 25279
+    register_type: holding
+    name: "Inverter PV Flag"
+    bitmask: 0x0001 # Bit 0
+    icon: "mdi:solar-power"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Load Flag"
+    address: 25279
+    register_type: holding
+    bitmask: 0x0002 # Bit 1
+    icon: "mdi:home-lightning-bolt"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Battery Flag"
+    address: 25279
+    register_type: holding
+    bitmask: 0x0004 # Bit 2
+    icon: "mdi:battery"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Grid Flag"
+    address: 25279
+    register_type: holding
+    bitmask: 0x0008 # Bit 3
+    icon: "mdi:transmission-tower"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Arrow: PV to Machine"
+    address: 25279
+    register_type: holding
+    bitmask: 0x0010 # Bit 4
+    icon: "mdi:arrow-right-bold-circle-outline"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Arrow: Machine to Load"
+    address: 25279
+    register_type: holding
+    bitmask: 0x0020 # Bit 5
+    icon: "mdi:arrow-right-bold-circle-outline"
 
 sensor:
+  #Inverter Control Message
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20000
+    register_type: holding
+    name: "Inverter Type Of Machine High"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20001
+    register_type: holding
+    name: "Inverter Type Of Machine Low"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20002
+    register_type: holding
+    name: "Inverter S/N High"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20003
+    register_type: holding
+    name: "Inverter S/N Low"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20004
+    register_type: holding
+    name: "Inverter Hardware version"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20005
+    register_type: holding
+    name: "Inverter Software version"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20005
+    register_type: holding
+    name: "Inverter Communication Protocol version"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20009
+    register_type: holding
+    name: "Inverter Battery Voltage Calibration coefficient"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20010
+    register_type: holding
+    name: "Inverter Voltage Calibration coefficient"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20011
+    register_type: holding
+    name: "Inverter Grid Voltage Calibration coefficient"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20012
+    register_type: holding
+    name: "Inverter BUS Voltage Calibration coefficient"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20013
+    register_type: holding
+    name: "Inverter Control Current Calibration coefficient"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20014
+    register_type: holding
+    name: "Inverter Current Calibration coefficient"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20015
+    register_type: holding
+    name: "Inverter Grid Current Calibration coefficient"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 20016
+    register_type: holding
+    name: "Inverter Load Current Calibration coefficient"
+
+
+  #Inverter Display Message
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 10103
@@ -386,21 +561,21 @@ sensor:
     device_class: power
     accuracy_decimals: 0
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15201
     name: "Inverter PV Charger work state"
     id: pv_charger_work_state
     internal: true
     register_type: holding
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15202
     name: "Inverter PV Charger MPPT state"
     internal: true
     id: pv_charger_mppt_state
     register_type: holding
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15203
     name: "Inverter PV Charger Charging state"
     id: pv_charger_charging_state
@@ -530,7 +705,7 @@ sensor:
     accuracy_decimals: 0
     icon: mdi:flash
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15221
     register_type: holding
     name: "Inverter PV Charger Accumulated minute"
@@ -540,7 +715,7 @@ sensor:
     icon: mdi:flash
     reuse_previous_range: false
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25201
     register_type: holding
     name: "Inverter Work State"
@@ -802,44 +977,6 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 25237
-    register_type: holding
-    name: "Inverter Relay state"
-    icon: mdi:electric-switch
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 25238
-    register_type: holding
-    name: "Inverter Relay state Grid"
-    icon: mdi:electric-switch
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 25239
-    register_type: holding
-    name: "Inverter Relay state Load"
-    icon: mdi:electric-switch
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 25240
-    register_type: holding
-    name: "Inverter Relay state NLine"
-    icon: mdi:electric-switch
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 25241
-    register_type: holding
-    name: "Inverter Relay state DC"
-    icon: mdi:electric-switch
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 25242
-    register_type: holding
-    name: "Inverter Relay state Earth"
-    icon: mdi:electric-switch
-
-
 
   # Inverter Accumulated discharge power
   - platform: modbus_controller
@@ -1362,6 +1499,31 @@ text_sensor:
     name: "Inverter warning message 2"
     icon: mdi:math-log
 
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    register_type: holding
+    address: 25269
+    raw_encode: ANSI
+    name: "Inverter Serial Number High #1"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    register_type: holding
+    address: 25270
+    raw_encode: ANSI
+    name: "Inverter Serial Number Low #1"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    register_type: holding
+    address: 25271
+    raw_encode: ANSI
+    name: "Inverter Hardware version #1"
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    register_type: holding
+    address: 25272
+    raw_encode: ANSI
+    name: "Inverter Software version #1"
+
   - platform: template
     name: "Inverter Work Mode"
     id: inverter_work_mode
@@ -1463,6 +1625,14 @@ text_sensor:
 
 select:
   - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    id: energy_eco_mode
+    name: "Inverter Eco Mode"
+    address: 20104
+    optionsmap:
+      "Off / Output is connected always": 0
+      "On / Output is disconnected if no load": 1
+  - platform: modbus_controller
     modbus_controller_id: must_inverter
     id: energy_use_mode
     name: "Inverter Energy Use Mode"
@@ -1541,8 +1711,8 @@ number:
     device_class: voltage
     address: 20118
     value_type: U_WORD
-    min_value: 48
-    max_value: 50
+    min_value: 44
+    max_value: 58
     step: 0.1
     multiply: 10
 
@@ -1553,7 +1723,7 @@ number:
     unit_of_measurement: "V"
     device_class: voltage
     icon: mdi:battery-arrow-up
-    min_value: 54
+    min_value: 44
     max_value: 58
     address: 20119
     value_type: U_WORD
@@ -1570,8 +1740,8 @@ number:
     address: 20127
     value_type: U_WORD
     multiply: 10
-    min_value: 48
-    max_value: 50
+    min_value: 40
+    max_value: 48
     step: 0.1
 
   - platform: modbus_controller
@@ -1584,8 +1754,8 @@ number:
     address: 20128
     value_type: U_WORD
     multiply: 10
-    min_value: 54
-    max_value: 58
+    min_value: 58
+    max_value: 60
     step: 0.1
 
   - platform: modbus_controller
