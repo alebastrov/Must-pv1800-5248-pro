@@ -3,7 +3,7 @@
 substitutions:
   mac_address: c8:47:80:13:ee:55
   inverter_id: inverter1
-  updates_inverter: 2000ms
+  updates_inverter: 4000ms
   updates_bms: 2000ms
 
 external_components:
@@ -19,6 +19,109 @@ external_components:
 esphome:
   name: must-pv1800
   friendly_name: inverter-monitor
+  on_boot:
+    priority: -100 # Runs after components have initialized
+    then:
+      - logger.log: "Setting default fallback values for BMS configuration..."
+      - number.set:
+          id: cell_soc100_voltage
+          value: 3.450
+      - number.set:
+          id: cell_soc0_voltage
+          value: 3.02
+      - number.set:
+          id: max_discharge_current
+          value: 120
+      - number.set:
+          id: max_charge_current
+          value: 45
+      - number.set:
+          id: max_balance_current
+          value: 2
+      - number.set:
+          id: power_off_voltage
+          value: 2.6
+      - number.set:
+          id: balancing_start_voltage
+          value: 3.36
+      - number.set:
+          id: min_safe_cell_voltage
+          value: 3.0
+      - number.set:
+          id: cell_voltage_undervoltage_protection
+          value: 2.68
+      - number.set:
+          id: cell_voltage_overvoltage_recovery
+          value: 3.4
+      - number.set:
+          id: cell_voltage_overvoltage_protection
+          value: 3.54
+      - number.set:
+          id: cell_request_charge_voltage
+          value: 3.450
+      - number.set:
+          id: cell_request_float_voltage
+          value: 3.375
+      - number.set:
+          id: balance_trigger_voltage
+          value: 0.005
+      - number.set:
+          id: inverter_charger_current
+          value: 45
+      - number.set:
+          id: batt_high_voltage
+          value: 57.6
+      - number.set:
+          id: batt_low_voltage
+          value: 48
+      - number.set:
+          id: batt_stop_chg
+          value: 55.2
+      - number.set:
+          id: batt_stop_dischg
+          value: 49
+      - number.set:
+          id: batt_absorb_voltage
+          value: 55
+      - number.set:
+          id: batt_float_voltage
+          value: 53.6
+      - number.set:
+          id: charge_overtemperature_protection
+          value: 45
+      - number.set:
+          id: charge_overtemperature_protection_recovery
+          value: 35
+      - number.set:
+          id: discharge_overtemperature_protection
+          value: 45
+      - number.set:
+          id: discharge_overtemperature_protection_recovery
+          value: 35
+      - number.set:
+          id: charge_undertemperature_protection
+          value: 12
+      - number.set:
+          id: charge_undertemperature_protection_recovery
+          value: 22
+      - number.set:
+          id: discharge_undertemperature_protection
+          value: 0
+      - number.set:
+          id: discharge_undertemperature_protection_recovery
+          value: 12
+      - number.set:
+          id: mosfet_overtemperature_protection
+          value: 75
+      - number.set:
+          id: mosfet_overtemperature_protection_recovery
+          value: 65
+      - number.set:
+          id: heating_start_temperature
+          value: 5
+      - number.set:
+          id: heating_stop_temperature
+          value: 20
 
 esp32:
   variant: ESP32
@@ -78,7 +181,9 @@ web_server:
   local: true
 
 status_led:
-  pin: GPIO2
+  pin:
+    number: GPIO2
+    ignore_strapping_warning: true
 
 uart:
   - id: uart_inverter
@@ -102,18 +207,17 @@ modbus_controller:
     setup_priority: -10
     max_cmd_retries: 2
     update_interval: ${updates_inverter}
-    command_throttle: 150ms
   - id: must_inverter_slow
     address: 0x04
     modbus_id: modbus_0
     setup_priority: -10
-    max_cmd_retries: 5
+    max_cmd_retries: 2
     update_interval: 30s
   - id: must_inverter_super_slow
     address: 0x04
     modbus_id: modbus_0
     setup_priority: -10
-    max_cmd_retries: 5
+    max_cmd_retries: 2
     update_interval: 15min # Reads only once every 15 minutes!
 
 time:
@@ -189,11 +293,24 @@ time:
           - sensor.template.publish:
               id: bms_yearly_discharge_meter
               state: 0.0
+
 globals:
   - id: bms_last_valid_efficiency
     type: float
     restore_value: true
     initial_value: '100.0'
+  - id: delta_safety_multiplier
+    type: float
+    restore_value: no
+    initial_value: '1.0' # 1.0 = Full speed, 0.5 = Cut in half, etc.
+  - id: safe_soc100_voltage
+    type: float
+    restore_value: no
+    initial_value: "3.4"
+  - id: is_updating
+    type: bool
+    restore_value: no
+    initial_value: "false"
 
 button:
   - platform: jk_bms_ble
@@ -454,15 +571,6 @@ binary_sensor:
     icon: "mdi:arrow-right-bold-circle-outline"
 
 sensor:
-  # Pull the maximum allowed current from the HA BMS entity
-  - platform: homeassistant
-    id: bms_max_charge_current
-    entity_id: local_bms_max_charge_current
-    internal: true
-    # If the BMS limit drops dynamically, re-evaluate the inverter setting immediately
-    on_value:
-      then:
-        - script.execute: control_inverter_charging_current
   - platform: template
     name: "BMS DischargeToCharge Cycle Ratio"
     id: bms_battery_ratio
@@ -1112,27 +1220,6 @@ sensor:
     unit_of_measurement: "Wh"
     icon: mdi:battery-arrow-up
 
-  - platform: homeassistant
-    entity_id: sensor.hall_inverter_monitor_bms_capacity_remaining
-    id: capacity_remaining
-    internal: true
-    on_value:
-      then:
-        - component.update: precise_soc
-  - platform: homeassistant
-    entity_id: sensor.hall_inverter_monitor_bms_full_charge_capacity
-    id: full_charge_capacity
-    internal: true
-    on_value:
-      then:
-        - component.update: precise_soc
-  - platform: homeassistant
-    entity_id: sensor.hall_inverter_monitor_bms_state_of_charge
-    id: state_of_charge
-    internal: true
-    on_value:
-      then:
-        - component.update: precise_soc
   - platform: template
     name: "BMS SOC"
     id: precise_soc
@@ -1325,15 +1412,27 @@ sensor:
     state_of_charge:
       name: "BMS state of charge"
       icon: mdi:state-machine
+      id: state_of_charge
+      on_value:
+        then:
+          - component.update: precise_soc
     state_of_health:
       name: "BMS state of health"
       icon: mdi:state-machine
     capacity_remaining:
       name: "BMS capacity remaining"
       icon: mdi:battery-unknown
+      id: capacity_remaining
+      on_value:
+        then:
+          - component.update: precise_soc
     full_charge_capacity:
       name: "BMS full charge capacity"
       icon: mdi:battery-check
+      id: full_charge_capacity
+      on_value:
+        then:
+          - component.update: precise_soc
     charging_cycles:
       name: "BMS charging cycles"
       icon: mdi:recycle-variant
@@ -1797,7 +1896,7 @@ number:
     value_type: U_WORD
     multiply: 10
     min_value: 40
-    max_value: 48
+    max_value: 50
     step: 0.1
 
   - platform: modbus_controller
@@ -1810,7 +1909,7 @@ number:
     address: 20128
     value_type: U_WORD
     multiply: 10
-    min_value: 58
+    min_value: 56
     max_value: 60
     step: 0.1
 
@@ -1836,6 +1935,7 @@ number:
     jk_bms_ble_id: bms0
     balance_trigger_voltage:
       name: "BMS balance trigger voltage"
+      id: balance_trigger_voltage
       min_value: 0.003
       max_value: 0.040
       step: 0.001
@@ -1845,22 +1945,25 @@ number:
       name: "BMS total battery capacity"
     cell_voltage_overvoltage_protection:
       name: "BMS cell voltage overvoltage protection"
+      id: cell_voltage_overvoltage_protection
       min_value: 3.49
       max_value: 3.65
       step: 0.01
     cell_voltage_overvoltage_recovery:
       name: "BMS cell voltage overvoltage recovery"
+      id: cell_voltage_overvoltage_recovery
       min_value: 3.36
       max_value: 3.48
       step: 0.01
     cell_voltage_undervoltage_protection:
       name: "BMS cell voltage undervoltage protection"
+      id: cell_voltage_undervoltage_protection
       min_value: 2.52
       max_value: 2.9
       step: 0.01
     cell_voltage_undervoltage_recovery:
       name: "BMS cell voltage undervoltage recovery"
-      min_value: 2.96
+      min_value: 2.9
       max_value: 3.1
       step: 0.01
       id: min_safe_cell_voltage  # <-- Added unique ID for the low safety threshold
@@ -1869,7 +1972,7 @@ number:
       min_value: 2.5
       max_value: 3.6
       step: 0.01
-      id: local_balancing_start_voltage
+      id: balancing_start_voltage
       on_value:
         then:
             - script.execute: validate_soc_voltages
@@ -1879,17 +1982,19 @@ number:
       name: "BMS current calibration"
     power_off_voltage:
       name: "BMS power off voltage"
+      id: power_off_voltage
       min_value: 2.5
-      max_value: 2.7
+      max_value: 2.85
       step: 0.01
     max_balance_current:
       name: "BMS max balance current"
-      min_value: 0.0
+      min_value: 0.1
       max_value: 2.0
       step: 0.1
+      id: max_balance_current
     max_charge_current:
       name: "BMS max charge current"
-      id: local_bms_max_charge_current
+      id: max_charge_current
       min_value: 1
       max_value: 150
       step: 1
@@ -1898,6 +2003,7 @@ number:
           - script.execute: control_inverter_charging_current
     max_discharge_current:
       name: "BMS max discharge current"
+      id: max_discharge_current
       min_value: 1
       max_value: 150
       step: 1
@@ -1909,31 +2015,33 @@ number:
       name: "BMS emergency duration"
     cell_soc100_voltage:
       name: "BMS cell soc100 voltage"
-      min_value: 3.3
-      max_value: 3.5
+      id: cell_soc100_voltage
+      min_value: 3.300
+      max_value: 3.650
       step: 0.005
-      id: local_cell_soc100_voltage
       on_value:
         then:
-            - script.execute: validate_soc_voltages
+          - script.execute: validate_soc_voltages
     cell_soc0_voltage:
       name: "BMS cell soc0 voltage"
-      min_value: 2.75
-      max_value: 3.15
+      id: cell_soc0_voltage
+      min_value: 2.750
+      max_value: 3.150
       step: 0.005
-      id: local_cell_soc0_voltage
       on_value:
         then:
             - script.execute: validate_soc_voltages
     cell_request_charge_voltage:
       name: "BMS cell request charge voltage"
-      min_value: 3.35
-      max_value: 3.65
+      id: cell_request_charge_voltage
+      min_value: 3.350
+      max_value: 3.650
       step: 0.005
     cell_request_float_voltage:
       name: "BMS cell request float voltage"
-      min_value: 3.38
-      max_value: 3.55
+      id: cell_request_float_voltage
+      min_value: 3.380
+      max_value: 3.550
       step: 0.005
     cell_request_charge_voltage_time:
       name: "BMS cell request charge voltage time"
@@ -1953,51 +2061,61 @@ number:
       name: "BMS short circuit protection recovery time"
     charge_overtemperature_protection:
       name: "BMS charge overtemperature protection"
-      min_value: 39
+      id: charge_overtemperature_protection
+      min_value: 35
       max_value: 55
       step: 1
     charge_overtemperature_protection_recovery:
       name: "BMS charge overtemperature protection recovery"
+      id: charge_overtemperature_protection_recovery
       min_value: 25
       max_value: 38
       step: 1
     discharge_overtemperature_protection:
       name: "BMS discharge overtemperature protection"
+      id: discharge_overtemperature_protection
       min_value: 39
       max_value: 55
       step: 1
     discharge_overtemperature_protection_recovery:
       name: "BMS discharge overtemperature protection recovery"
+      id: discharge_overtemperature_protection_recovery
       min_value: 25
       max_value: 38
       step: 1
     charge_undertemperature_protection:
       name: "BMS charge undertemperature protection"
+      id: charge_undertemperature_protection
       min_value: 5
       max_value: 15
       step: 1
     charge_undertemperature_protection_recovery:
       name: "BMS charge undertemperature protection recovery"
+      id: charge_undertemperature_protection_recovery
       min_value: 16
       max_value: 25
       step: 1
     discharge_undertemperature_protection:
       name: "BMS discharge undertemperature protection"
-      min_value: -15
+      id: discharge_undertemperature_protection
+      min_value: -20
       max_value: 7
       step: 1
     discharge_undertemperature_protection_recovery:
       name: "BMS discharge undertemperature protection recovery"
+      id: discharge_undertemperature_protection_recovery
       min_value: 8
       max_value: 20
       step: 1
     mosfet_overtemperature_protection:
       name: "BMS mosfet overtemperature protection"
+      id: mosfet_overtemperature_protection
       min_value: 70
       max_value: 100
       step: 2
     mosfet_overtemperature_protection_recovery:
       name: "BMS mosfet overtemperature protection recovery"
+      id: mosfet_overtemperature_protection_recovery
       min_value: 46
       max_value: 68
       step: 1
@@ -2005,11 +2123,13 @@ number:
       name: "BMS discharge precharge time"
     heating_start_temperature:
       name: "BMS heating start temperature"
+      id: heating_start_temperature
       min_value: -20
       max_value: 20
       step: 2
     heating_stop_temperature:
       name: "BMS heating stop temperature"
+      id: heating_stop_temperature
       min_value: 12
       max_value: 24
       step: 1
@@ -2022,22 +2142,20 @@ script:
     mode: restart
     then:
       - if:
-            condition:
+          condition:
               lambda: |-
-                // 1. Correct syntax: check if the current option string is not empty
                 if (id(target_charging_current_select).current_option().empty() || 
-                    std::isnan(id(local_bms_max_charge_current).state)) {
+                    std::isnan(id(max_charge_current).state)) {
                   return false;
                 }
                 return true;
-            then:
+          then:
               - number.set:
                   id: inverter_charger_current
                   value: !lambda |-
-                    // 2. Correct syntax: use .current_option().c_str() to read the selected string
                     const char* selected_str = id(target_charging_current_select).current_option().c_str();
                     float selected_target = ::atof(selected_str);
-                    float max_allowed = id(local_bms_max_charge_current).state;
+                    float max_allowed = id(max_charge_current).state;
 
                     // Return the lowest value between the user's choice and the BMS safety limit
                     if (selected_target > max_allowed) {
@@ -2051,53 +2169,149 @@ script:
     mode: restart
     then:
       - if:
-            condition:
+          condition:
+            lambda: |-
+              if (id(is_updating)) return false; 
+
+              // CRITICAL BOOT FILTER: Exit immediately if any slider or live telemetry reads 0.0 or NaN
+              if (std::isnan(id(live_min_cell_voltage).state) || id(live_min_cell_voltage).state < 1.0f ||
+                  std::isnan(id(live_max_cell_voltage).state) || id(live_max_cell_voltage).state < 1.0f ||
+                  std::isnan(id(min_safe_cell_voltage).state) || id(min_safe_cell_voltage).state < 1.0f ||
+                  std::isnan(id(cell_soc100_voltage).state) || id(cell_soc100_voltage).state < 1.0f || 
+                  std::isnan(id(cell_soc0_voltage).state) || id(cell_soc0_voltage).state < 1.0f ||
+                  std::isnan(id(balancing_start_voltage).state) || id(balancing_start_voltage).state < 1.0f) {
+                return false; 
+              }
+              return true;
+          then:
+            - lambda: |-
+                float live_min = id(live_min_cell_voltage).state;
+                float live_max = id(live_max_cell_voltage).state;
+                float min_safe = id(min_safe_cell_voltage).state;
+                float soc100 = id(cell_soc100_voltage).state;
+                float soc0 = id(cell_soc0_voltage).state;
+                float bal_start = id(balancing_start_voltage).state;
+
+                // 1. Validate SOC 100% Voltage (Strict limits)
+                if (soc100 > live_max) {
+                  float target_soc100 = std::min(live_max, 3.500f); 
+                  if (target_soc100 < 3.300f) target_soc100 = 3.300f;
+
+                  if (std::abs(soc100 - target_soc100) > 0.001f) {
+                    ESP_LOGW("safety", "SOC 100%% voltage (%.3fV) exceeds Max Cell (%.3fV). Clamping to %.3fV.", soc100, live_max, target_soc100);
+                    id(is_updating) = true; 
+                    auto call = id(cell_soc100_voltage).make_call();
+                    call.set_value(target_soc100);
+                    call.perform();
+                    id(is_updating) = false;
+                  }
+                }
+
+                // 2. Validate SOC 0% Voltage (Strictly hard-clamped to your component UI max boundary of 3.150V)
+                if (soc0 < live_min) {
+                  float target_soc0 = std::min(live_min, 3.150f); 
+                  if (target_soc0 < 2.500f) target_soc0 = 2.500f;
+
+                  if (std::abs(soc0 - target_soc0) > 0.001f) {
+                    ESP_LOGW("safety", "SOC 0%% voltage (%.3fV) drops below Min Cell (%.3fV). Clamping to safe UI max %.3fV.", soc0, live_min, target_soc0);
+                    id(is_updating) = true; 
+                    auto call = id(cell_soc0_voltage).make_call();
+                    call.set_value(target_soc0);
+                    call.perform();
+                    id(is_updating) = false;
+                  }
+                }
+
+                // 3. Validate Balancing Start Voltage
+                if (bal_start < min_safe) {
+                  float target_bal = std::max(min_safe, 3.200f);
+                  if (target_bal > 3.600f) target_bal = 3.600f;
+
+                  if (std::abs(bal_start - target_bal) > 0.001f) {
+                    ESP_LOGW("safety", "Balancing start (%.3fV) below floor (%.3fV). Clamping to %.3fV.", bal_start, min_safe, target_bal);
+                    id(is_updating) = true; 
+                    auto call = id(balancing_start_voltage).make_call();
+                    call.set_value(target_bal);
+                    call.perform();
+                    id(is_updating) = false;
+                  }
+                } else if (bal_start > soc100) {
+                  float target_bal = std::min(soc100, 3.600f);
+                  if (target_bal < 3.200f) target_bal = 3.200f;
+
+                  if (std::abs(bal_start - target_bal) > 0.001f) {
+                    ESP_LOGW("safety", "Balancing start (%.3fV) exceeds SOC 100%% (%.3fV). Clamping to %.3fV.", bal_start, soc100, target_bal);
+                    id(is_updating) = true; 
+                    auto call = id(balancing_start_voltage).make_call();
+                    call.set_value(target_bal);
+                    call.perform();
+                    id(is_updating) = false;
+                  }
+                }
+  #
+  - id: check_cell_delta_safety
+    mode: restart
+    then:
+      - if:
+          condition:
               lambda: |-
-                // Core safety check: Ensure all local BMS sensors have loaded valid numeric states
-                if (std::isnan(id(live_min_cell_voltage).state) || 
-                    std::isnan(id(live_max_cell_voltage).state) ||
-                    std::isnan(id(min_safe_cell_voltage).state) ||
-                    std::isnan(id(local_cell_soc100_voltage).state) || 
-                    std::isnan(id(local_cell_soc0_voltage).state) ||
-                    std::isnan(id(local_balancing_start_voltage).state)) {
+                // Safe exit if live telemetry numbers are not ready yet
+                if (std::isnan(id(live_max_cell_voltage).state) || 
+                    std::isnan(id(live_min_cell_voltage).state) ||
+                    std::isnan(id(inverter_charger_current).state) ||
+                    std::isnan(id(max_balance_current).state)) {
                   return false;
                 }
                 return true;
-            then:
+          then:
               - lambda: |-
-                  float live_min = id(live_min_cell_voltage).state;
-                  float live_max = id(live_max_cell_voltage).state;
-                  float min_safe = id(min_safe_cell_voltage).state;
-                  float soc100 = id(local_cell_soc100_voltage).state;
-                  float soc0 = id(local_cell_soc0_voltage).state;
-                  float bal_start = id(local_balancing_start_voltage).state;
+                  float cell_delta = id(live_max_cell_voltage).state - id(live_min_cell_voltage).state;
 
-                  // 1. Validate SOC 100% Voltage (clamped to physical cell max)
-                  if (soc100 > live_max) {
-                    ESP_LOGW("safety", "SOC 100%% voltage (%.3fV) exceeds Max Cell Voltage (%.3fV). Clamping down.", soc100, live_max);
-                    auto call = id(local_cell_soc100_voltage).make_call();
-                    call.set_value(live_max);
-                    call.perform();
-                    soc100 = live_max; 
-                  }
+                  // 1. RECOVERY RULE: If delta drops to 5mV or less, double the current capability
+                  if (cell_delta <= 0.005f && id(delta_safety_multiplier) < 1.0f) {
+                    float original_current = id(inverter_charger_current).state / id(delta_safety_multiplier);
+                    id(delta_safety_multiplier) *= 2.0f;
+                    if (id(delta_safety_multiplier) > 1.0f) id(delta_safety_multiplier) = 1.0f;
 
-                  // 2. Validate SOC 0% Voltage (clamped to physical cell min)
-                  if (soc0 < live_min) {
-                    ESP_LOGW("safety", "SOC 0%% voltage (%.3fV) drops below Min Cell Voltage (%.3fV). Clamping up.", soc0, live_min);
-                    auto call = id(local_cell_soc0_voltage).make_call();
-                    call.set_value(live_min);
+                    float new_target = original_current * id(delta_safety_multiplier);
+                    ESP_LOGI("safety", "Cells balanced (%.3fV). Increasing inverter current to %.1fA", cell_delta, new_target);
+
+                    auto call = id(inverter_charger_current).make_call();
+                    call.set_value(new_target);
                     call.perform();
                   }
 
-                  // 3. TARGETED ADJUSTMENT: Only clamp balancing_start_voltage
-                  if (bal_start < min_safe) {
-                    ESP_LOGW("safety", "Balancing start (%.3fV) below recovery floor (%.3fV). Clamping up.", bal_start, min_safe);
-                    auto call = id(local_balancing_start_voltage).make_call();
-                    call.set_value(min_safe);
-                    call.perform();
-                  } else if (bal_start > soc100) {
-                    ESP_LOGW("safety", "Balancing start (%.3fV) exceeds SOC 100%% target (%.3fV). Clamping down.", bal_start, soc100);
-                    auto call = id(local_balancing_start_voltage).make_call();
-                    call.set_value(soc100);
-                    call.perform();
+                  // 2. TIMING TRIGGER: Start 1-minute window if imbalance exceeds 40mV
+                  if (cell_delta > 0.040f) {
+                    if (!id(delta_safety_timer).is_running()) {
+                      id(delta_safety_timer).execute();
+                    }
+                  } else {
+                    id(delta_safety_timer).stop(); // Disarm countdown if variance drops early
                   }
+
+  - id: delta_safety_timer
+    mode: single
+    then:
+        - delay: 60s
+        - lambda: |-
+            float cell_delta = id(live_max_cell_voltage).state - id(live_min_cell_voltage).state;
+            float current_setting = id(inverter_charger_current).state;
+            float balance_floor = id(max_balance_current).state;
+
+            // If delta is still high after 1 minute, execute a 50% current cut
+            if (cell_delta > 0.040f && current_setting > balance_floor) {
+              id(delta_safety_multiplier) *= 0.5f;
+              float new_target = current_setting * 0.5f;
+
+              // Stop dropping if we hit or cross the max balance current threshold
+              if (new_target < balance_floor) {
+                new_target = balance_floor;
+              }
+
+              ESP_LOGW("safety", "Cell delta sustained >40mV for 1 min (%.3fV). Dropping current to %.1fA", cell_delta, new_target);
+
+              auto call = id(inverter_charger_current).make_call();
+              call.set_value(new_target);
+              call.perform();
+            }
