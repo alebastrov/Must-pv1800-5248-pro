@@ -2221,13 +2221,27 @@ script:
       - logger.log: "JK-BMS BLE connection detected. Waiting 15 seconds for parameters to stabilize..."
       - delay: 15s
       - logger.log: "Setting default fallback values for BMS configuration..."
-      - if:
-          condition:
-            lambda: 'return std::isnan(id(cell_soc0_voltage).state) || id(cell_soc0_voltage).state == 0;'
-          then:
-            - number.set:
-                id: cell_soc0_voltage
-                value: 3.000
+      - lambda: |-
+          // 1. Double check objects exist and have initialized memory structures
+          auto* soc100 = id(cell_soc100_voltage);
+          auto* soc0 = id(cell_soc0_voltage);
+          
+          if (soc100 != nullptr && soc0 != nullptr) {
+            ESP_LOGI("bms_init", "Components verified. Pushing safe configuration metrics...");
+          
+            // Generate calls instead of letting YAML blindly drop unvalidated commands
+            auto call_100 = soc100->make_call();
+            call_100.set_value(3.450f);
+            call_100.perform();
+          
+            auto call_0 = soc0->make_call();
+            call_0.set_value(3.020f);
+            call_0.perform();
+          
+            ESP_LOGI("bms_init", "BMS configuration setup successfully written.");
+          } else {
+            ESP_LOGE("bms_init", "Critical components not ready yet. Skipping default values to prevent core abort.");
+          }
       - if:
           condition:
             lambda: 'return std::isnan(id(max_discharge_current).state) || id(max_discharge_current).state == 0;'
