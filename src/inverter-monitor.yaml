@@ -457,7 +457,7 @@ sensor:
   # Pull the maximum allowed current from the HA BMS entity
   - platform: homeassistant
     id: bms_max_charge_current
-    entity_id: number.hall_inverter_monitor_bms_max_charge_current
+    entity_id: local_bms_max_charge_current
     internal: true
     # If the BMS limit drops dynamically, re-evaluate the inverter setting immediately
     on_value:
@@ -1162,9 +1162,17 @@ sensor:
     min_cell_voltage:
       name: "BMS min cell voltage"
       icon: mdi:battery-charging-low
+      id: live_min_cell_voltage
+      on_value:
+        then:
+            - script.execute: validate_soc_voltages
     max_cell_voltage:
       name: "BMS max cell voltage"
       icon: mdi:battery-charging-high
+      id: live_max_cell_voltage
+      on_value:
+        then:
+            - script.execute: validate_soc_voltages
     min_voltage_cell:
       name: "BMS min voltage cell"
       icon: mdi:battery-charging-low
@@ -1855,11 +1863,16 @@ number:
       min_value: 2.96
       max_value: 3.1
       step: 0.01
+      id: min_safe_cell_voltage  # <-- Added unique ID for the low safety threshold
     balancing_start_voltage:
       name: "BMS balancing start voltage"
       min_value: 2.5
       max_value: 3.6
       step: 0.01
+      id: local_balancing_start_voltage
+      on_value:
+        then:
+            - script.execute: validate_soc_voltages
     voltage_calibration:
       name: "BMS voltage calibration"
     current_calibration:
@@ -1876,9 +1889,13 @@ number:
       step: 0.1
     max_charge_current:
       name: "BMS max charge current"
+      id: local_bms_max_charge_current
       min_value: 1
       max_value: 150
       step: 1
+      on_value:
+        then:
+          - script.execute: control_inverter_charging_current
     max_discharge_current:
       name: "BMS max discharge current"
       min_value: 1
@@ -1895,11 +1912,19 @@ number:
       min_value: 3.3
       max_value: 3.5
       step: 0.005
+      id: local_cell_soc100_voltage
+      on_value:
+        then:
+            - script.execute: validate_soc_voltages
     cell_soc0_voltage:
       name: "BMS cell soc0 voltage"
       min_value: 2.75
       max_value: 3.15
       step: 0.005
+      id: local_cell_soc0_voltage
+      on_value:
+        then:
+            - script.execute: validate_soc_voltages
     cell_request_charge_voltage:
       name: "BMS cell request charge voltage"
       min_value: 3.35
@@ -1989,31 +2014,90 @@ number:
       max_value: 24
       step: 1
 
-# Automation script to ensure the Inverter charging current never exceeds the allowed max BMS charging current
-# without that the inverter gives #03 error and refuses to charge the battery, as BMS disconnects battery from charger
-# and inverter sees drastically increasing charging voltage
 script:
+  # Automation script to ensure the Inverter charging current never exceeds the allowed max BMS charging current
+  # without that the inverter gives #03 error and refuses to charge the battery, as BMS disconnects battery from charger
+  # and inverter sees drastically increasing charging voltage
   - id: control_inverter_charging_current
     mode: restart
     then:
       - if:
-          condition:
-            lambda: |-
-              // Ensure we have a valid selection and a valid BMS reading before acting
-              if (!id(target_charging_current_select).has_index() || std::isnan(id(bms_max_charge_current).state)) {
-                return false;
-              }
-              return true;
-          then:
-            - number.set:
-                id: inverter_charger_current
-                value: !lambda |-
-                  // 1. Convert the chosen dropdown string option to a float number
-                  float selected_target = ::atof(id(target_charging_current_select).state.c_str());
-                  float max_allowed = id(bms_max_charge_current).state;
-                  
-                  // 2. Return the lowest value between the user's choice and the BMS safety threshold
-                  if (selected_target > max_allowed) {
-                    return max_allowed;
+            condition:
+              lambda: |-
+                // 1. Correct syntax: check if the current option string is not empty
+                if (id(target_charging_current_select).current_option().empty() || 
+                    std::isnan(id(local_bms_max_charge_current).state)) {
+                  return false;
+                }
+                return true;
+            then:
+              - number.set:
+                  id: inverter_charger_current
+                  value: !lambda |-
+                    // 2. Correct syntax: use .current_option().c_str() to read the selected string
+                    const char* selected_str = id(target_charging_current_select).current_option().c_str();
+                    float selected_target = ::atof(selected_str);
+                    float max_allowed = id(local_bms_max_charge_current).state;
+
+                    // Return the lowest value between the user's choice and the BMS safety limit
+                    if (selected_target > max_allowed) {
+                      return max_allowed;
+                    }
+                    return selected_target;
+  # Automated Safeguard: Monitors real-time cell parameters and intercepts changes to the BMS calibration targets.
+  # Proactive Boundary Enforcement: Automatically clamps the user-configured cell_soc100_voltage down to the hardware max_cell_voltage if it overshoots.
+  # Low-End Protection: Instantly forces cell_soc0_voltage up to the hardware min_cell_voltage if the target drops below live safe limits.
+  - id: validate_soc_voltages
+    mode: restart
+    then:
+      - if:
+            condition:
+              lambda: |-
+                // Core safety check: Ensure all local BMS sensors have loaded valid numeric states
+                if (std::isnan(id(live_min_cell_voltage).state) || 
+                    std::isnan(id(live_max_cell_voltage).state) ||
+                    std::isnan(id(min_safe_cell_voltage).state) ||
+                    std::isnan(id(local_cell_soc100_voltage).state) || 
+                    std::isnan(id(local_cell_soc0_voltage).state) ||
+                    std::isnan(id(local_balancing_start_voltage).state)) {
+                  return false;
+                }
+                return true;
+            then:
+              - lambda: |-
+                  float live_min = id(live_min_cell_voltage).state;
+                  float live_max = id(live_max_cell_voltage).state;
+                  float min_safe = id(min_safe_cell_voltage).state;
+                  float soc100 = id(local_cell_soc100_voltage).state;
+                  float soc0 = id(local_cell_soc0_voltage).state;
+                  float bal_start = id(local_balancing_start_voltage).state;
+
+                  // 1. Validate SOC 100% Voltage (clamped to physical cell max)
+                  if (soc100 > live_max) {
+                    ESP_LOGW("safety", "SOC 100%% voltage (%.3fV) exceeds Max Cell Voltage (%.3fV). Clamping down.", soc100, live_max);
+                    auto call = id(local_cell_soc100_voltage).make_call();
+                    call.set_value(live_max);
+                    call.perform();
+                    soc100 = live_max; 
                   }
-                  return selected_target;
+
+                  // 2. Validate SOC 0% Voltage (clamped to physical cell min)
+                  if (soc0 < live_min) {
+                    ESP_LOGW("safety", "SOC 0%% voltage (%.3fV) drops below Min Cell Voltage (%.3fV). Clamping up.", soc0, live_min);
+                    auto call = id(local_cell_soc0_voltage).make_call();
+                    call.set_value(live_min);
+                    call.perform();
+                  }
+
+                  // 3. TARGETED ADJUSTMENT: Only clamp balancing_start_voltage
+                  if (bal_start < min_safe) {
+                    ESP_LOGW("safety", "Balancing start (%.3fV) below recovery floor (%.3fV). Clamping up.", bal_start, min_safe);
+                    auto call = id(local_balancing_start_voltage).make_call();
+                    call.set_value(min_safe);
+                    call.perform();
+                  } else if (bal_start > soc100) {
+                    ESP_LOGW("safety", "Balancing start (%.3fV) exceeds SOC 100%% target (%.3fV). Clamping down.", bal_start, soc100);
+                    auto call = id(local_balancing_start_voltage).make_call();
+                    call.set_value(soc100);
+                    call.perform();
+                  }
