@@ -454,6 +454,15 @@ binary_sensor:
     icon: "mdi:arrow-right-bold-circle-outline"
 
 sensor:
+  # Pull the maximum allowed current from the HA BMS entity
+  - platform: homeassistant
+    id: bms_max_charge_current
+    entity_id: number.hall_inverter_monitor_bms_max_charge_current
+    internal: true
+    # If the BMS limit drops dynamically, re-evaluate the inverter setting immediately
+    on_value:
+      then:
+        - script.execute: control_inverter_charging_current
   - platform: template
     name: "BMS DischargeToCharge Cycle Ratio"
     id: bms_battery_ratio
@@ -1645,6 +1654,7 @@ select:
     name: "Target Charging Current Selector"
     id: target_charging_current_select
     icon: mdi:tune
+    optimistic: true
     options:
       - "1"
       - "2"
