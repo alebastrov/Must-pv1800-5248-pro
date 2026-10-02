@@ -22,106 +22,6 @@ esphome:
   on_boot:
     priority: -100 # Runs after components have initialized
     then:
-      - logger.log: "Setting default fallback values for BMS configuration..."
-      - number.set:
-          id: cell_soc100_voltage
-          value: 3.450
-      - number.set:
-          id: cell_soc0_voltage
-          value: 3.02
-      - number.set:
-          id: max_discharge_current
-          value: 120
-      - number.set:
-          id: max_charge_current
-          value: 45
-      - number.set:
-          id: max_balance_current
-          value: 2
-      - number.set:
-          id: power_off_voltage
-          value: 2.6
-      - number.set:
-          id: balancing_start_voltage
-          value: 3.36
-      - number.set:
-          id: min_safe_cell_voltage
-          value: 3.0
-      - number.set:
-          id: cell_voltage_undervoltage_protection
-          value: 2.68
-      - number.set:
-          id: cell_voltage_overvoltage_recovery
-          value: 3.4
-      - number.set:
-          id: cell_voltage_overvoltage_protection
-          value: 3.54
-      - number.set:
-          id: cell_request_charge_voltage
-          value: 3.450
-      - number.set:
-          id: cell_request_float_voltage
-          value: 3.375
-      - number.set:
-          id: balance_trigger_voltage
-          value: 0.005
-      - number.set:
-          id: inverter_charger_current
-          value: 45
-      - number.set:
-          id: batt_high_voltage
-          value: 57.6
-      - number.set:
-          id: batt_low_voltage
-          value: 48
-      - number.set:
-          id: batt_stop_chg
-          value: 55.2
-      - number.set:
-          id: batt_stop_dischg
-          value: 49
-      - number.set:
-          id: batt_absorb_voltage
-          value: 55
-      - number.set:
-          id: batt_float_voltage
-          value: 53.6
-      - number.set:
-          id: charge_overtemperature_protection
-          value: 45
-      - number.set:
-          id: charge_overtemperature_protection_recovery
-          value: 35
-      - number.set:
-          id: discharge_overtemperature_protection
-          value: 45
-      - number.set:
-          id: discharge_overtemperature_protection_recovery
-          value: 35
-      - number.set:
-          id: charge_undertemperature_protection
-          value: 12
-      - number.set:
-          id: charge_undertemperature_protection_recovery
-          value: 22
-      - number.set:
-          id: discharge_undertemperature_protection
-          value: 0
-      - number.set:
-          id: discharge_undertemperature_protection_recovery
-          value: 12
-      - number.set:
-          id: mosfet_overtemperature_protection
-          value: 75
-      - number.set:
-          id: mosfet_overtemperature_protection_recovery
-          value: 65
-      - number.set:
-          id: heating_start_temperature
-          value: 5
-      - number.set:
-          id: heating_stop_temperature
-          value: 20
 
 esp32:
   variant: ESP32
@@ -293,6 +193,10 @@ time:
           - sensor.template.publish:
               id: bms_yearly_discharge_meter
               state: 0.0
+interval:
+  - interval: 5s
+    then:
+      - script.execute: validate_soc_voltages
 
 globals:
   - id: bms_last_valid_efficiency
@@ -308,6 +212,10 @@ globals:
     restore_value: no
     initial_value: "3.4"
   - id: is_updating
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: bms_initialized
     type: bool
     restore_value: no
     initial_value: "false"
@@ -569,6 +477,21 @@ binary_sensor:
     register_type: holding
     bitmask: 0x0010 # Bit 4
     icon: "mdi:arrow-right-bold-circle-outline"
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: bms0
+    online_status:
+      name: "BMS Online Status"
+      id: bms_online_status
+      # Fires the instant the BLE link transitions from disconnected to connected
+      on_press:
+        then:
+          - lambda: |-
+              if (!id(bms_initialized)) {
+                id(bms_initialized) = true; // Lock out further executions
+                // FIX: Call the script object explicitly by its ID marker
+                id(delayed_bms_initialization).execute(); 
+              }
 
 sensor:
   - platform: template
@@ -1966,16 +1889,13 @@ number:
       min_value: 2.9
       max_value: 3.1
       step: 0.01
-      id: min_safe_cell_voltage  # <-- Added unique ID for the low safety threshold
+      id: cell_voltage_undervoltage_recovery  # <-- Added unique ID for the low safety threshold
     balancing_start_voltage:
       name: "BMS balancing start voltage"
       min_value: 2.5
       max_value: 3.6
       step: 0.01
       id: balancing_start_voltage
-      on_value:
-        then:
-            - script.execute: validate_soc_voltages
     voltage_calibration:
       name: "BMS voltage calibration"
     current_calibration:
@@ -2019,18 +1939,12 @@ number:
       min_value: 3.300
       max_value: 3.650
       step: 0.005
-      on_value:
-        then:
-          - script.execute: validate_soc_voltages
     cell_soc0_voltage:
       name: "BMS cell soc0 voltage"
       id: cell_soc0_voltage
       min_value: 2.750
       max_value: 3.150
       step: 0.005
-      on_value:
-        then:
-            - script.execute: validate_soc_voltages
     cell_request_charge_voltage:
       name: "BMS cell request charge voltage"
       id: cell_request_charge_voltage
@@ -2171,81 +2085,66 @@ script:
       - if:
           condition:
             lambda: |-
-              if (id(is_updating)) return false; 
-
-              // CRITICAL BOOT FILTER: Exit immediately if any slider or live telemetry reads 0.0 or NaN
-              if (std::isnan(id(live_min_cell_voltage).state) || id(live_min_cell_voltage).state < 1.0f ||
-                  std::isnan(id(live_max_cell_voltage).state) || id(live_max_cell_voltage).state < 1.0f ||
-                  std::isnan(id(min_safe_cell_voltage).state) || id(min_safe_cell_voltage).state < 1.0f ||
-                  std::isnan(id(cell_soc100_voltage).state) || id(cell_soc100_voltage).state < 1.0f || 
-                  std::isnan(id(cell_soc0_voltage).state) || id(cell_soc0_voltage).state < 1.0f ||
-                  std::isnan(id(balancing_start_voltage).state) || id(balancing_start_voltage).state < 1.0f) {
+              // BLE BOOTSTRAP FILTER: Instantly exit if the BLE link hasn't populated data yet
+              if (std::isnan(id(cell_soc100_voltage).state) || id(cell_soc100_voltage).state < 2.0f || 
+                  std::isnan(id(cell_soc0_voltage).state)   || id(cell_soc0_voltage).state < 2.0f   || 
+                  std::isnan(id(balancing_start_voltage).state) || id(balancing_start_voltage).state < 2.0f) {
+                ESP_LOGD("bms_ble", "Waiting for JK-BMS BLE telemetry frame to populate number properties...");
                 return false; 
+              }
+
+              // Telemetry safety checks (skip if BLE data is momentarily missing)
+              if (std::isnan(id(live_min_cell_voltage).state) || id(live_min_cell_voltage).state < 2.0f ||
+                  std::isnan(id(live_max_cell_voltage).state) || id(live_max_cell_voltage).state < 2.0f ||
+                  std::isnan(id(cell_voltage_undervoltage_recovery).state) || id(cell_voltage_undervoltage_recovery).state < 2.0f) {
+                return false;
               }
               return true;
           then:
             - lambda: |-
                 float live_min = id(live_min_cell_voltage).state;
                 float live_max = id(live_max_cell_voltage).state;
-                float min_safe = id(min_safe_cell_voltage).state;
+                float min_safe = id(cell_voltage_undervoltage_recovery).state;
                 float soc100 = id(cell_soc100_voltage).state;
                 float soc0 = id(cell_soc0_voltage).state;
                 float bal_start = id(balancing_start_voltage).state;
 
-                // 1. Validate SOC 100% Voltage (Strict limits)
+                // 1. Clamp SOC 100% (Strictly bound to your 3.30V - 3.50V UI slider limits)
                 if (soc100 > live_max) {
-                  float target_soc100 = std::min(live_max, 3.500f); 
-                  if (target_soc100 < 3.300f) target_soc100 = 3.300f;
-
-                  if (std::abs(soc100 - target_soc100) > 0.001f) {
-                    ESP_LOGW("safety", "SOC 100%% voltage (%.3fV) exceeds Max Cell (%.3fV). Clamping to %.3fV.", soc100, live_max, target_soc100);
-                    id(is_updating) = true; 
+                  float target = std::max(3.300f, std::min(live_max, 3.500f));
+                  if (std::abs(soc100 - target) > 0.002f) {
+                    ESP_LOGW("safety", "SOC 100%% out of safe limits. Adjusting via BLE to %.3fV", target);
                     auto call = id(cell_soc100_voltage).make_call();
-                    call.set_value(target_soc100);
+                    call.set_value(target);
                     call.perform();
-                    id(is_updating) = false;
                   }
                 }
 
-                // 2. Validate SOC 0% Voltage (Strictly hard-clamped to your component UI max boundary of 3.150V)
+                // 2. Clamp SOC 0% (CRITICAL: Strictly bound to your 2.50V - 3.15V UI slider limits)
                 if (soc0 < live_min) {
-                  float target_soc0 = std::min(live_min, 3.150f); 
-                  if (target_soc0 < 2.500f) target_soc0 = 2.500f;
-
-                  if (std::abs(soc0 - target_soc0) > 0.001f) {
-                    ESP_LOGW("safety", "SOC 0%% voltage (%.3fV) drops below Min Cell (%.3fV). Clamping to safe UI max %.3fV.", soc0, live_min, target_soc0);
-                    id(is_updating) = true; 
+                  float target = std::max(2.500f, std::min(live_min, 3.150f));
+                  if (std::abs(soc0 - target) > 0.002f) {
+                    ESP_LOGW("safety", "SOC 0%% out of safe limits. Adjusting via BLE to %.3fV", target);
                     auto call = id(cell_soc0_voltage).make_call();
-                    call.set_value(target_soc0);
+                    call.set_value(target);
                     call.perform();
-                    id(is_updating) = false;
                   }
                 }
 
-                // 3. Validate Balancing Start Voltage
+                // 3. Clamp Balancing Start (Strictly bound to your 3.20V - 3.60V UI slider limits)
                 if (bal_start < min_safe) {
-                  float target_bal = std::max(min_safe, 3.200f);
-                  if (target_bal > 3.600f) target_bal = 3.600f;
-
-                  if (std::abs(bal_start - target_bal) > 0.001f) {
-                    ESP_LOGW("safety", "Balancing start (%.3fV) below floor (%.3fV). Clamping to %.3fV.", bal_start, min_safe, target_bal);
-                    id(is_updating) = true; 
+                  float target = std::max(3.200f, std::min(min_safe, 3.600f));
+                  if (std::abs(bal_start - target) > 0.002f) {
                     auto call = id(balancing_start_voltage).make_call();
-                    call.set_value(target_bal);
+                    call.set_value(target);
                     call.perform();
-                    id(is_updating) = false;
                   }
                 } else if (bal_start > soc100) {
-                  float target_bal = std::min(soc100, 3.600f);
-                  if (target_bal < 3.200f) target_bal = 3.200f;
-
-                  if (std::abs(bal_start - target_bal) > 0.001f) {
-                    ESP_LOGW("safety", "Balancing start (%.3fV) exceeds SOC 100%% (%.3fV). Clamping to %.3fV.", bal_start, soc100, target_bal);
-                    id(is_updating) = true; 
+                  float target = std::max(3.200f, std::min(soc100, 3.600f));
+                  if (std::abs(bal_start - target) > 0.002f) {
                     auto call = id(balancing_start_voltage).make_call();
-                    call.set_value(target_bal);
+                    call.set_value(target);
                     call.perform();
-                    id(is_updating) = false;
                   }
                 }
   #
@@ -2315,3 +2214,236 @@ script:
               call.set_value(new_target);
               call.perform();
             }
+  #
+  - id: delayed_bms_initialization
+    mode: restart
+    then:
+      - logger.log: "JK-BMS BLE connection detected. Waiting 15 seconds for parameters to stabilize..."
+      - delay: 15s
+      - logger.log: "Setting default fallback values for BMS configuration..."
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(cell_soc0_voltage).state) || id(cell_soc0_voltage).state == 0;'
+          then:
+            - number.set:
+                id: cell_soc0_voltage
+                value: 3.000
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(max_discharge_current).state) || id(max_discharge_current).state == 0;'
+          then:
+            - number.set:
+                id: max_discharge_current
+                value: 120
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(max_charge_current).state) || id(max_charge_current).state == 0;'
+          then:
+            - number.set:
+                id: max_charge_current
+                value: 100
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(max_balance_current).state) || id(max_balance_current).state == 0;'
+          then:
+            - number.set:
+                id: max_balance_current
+                value: 2
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(power_off_voltage).state) || id(power_off_voltage).state == 0;'
+          then:
+            - number.set:
+                id: power_off_voltage
+                value: 2.500
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(balancing_start_voltage).state) || id(balancing_start_voltage).state == 0;'
+          then:
+            - number.set:
+                id: balancing_start_voltage
+                value: 3.360
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(cell_voltage_undervoltage_recovery).state) || id(cell_voltage_undervoltage_recovery).state == 0;'
+          then:
+            - number.set:
+                id: cell_voltage_undervoltage_recovery
+                value: 3.000
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(cell_voltage_undervoltage_protection).state) || id(cell_voltage_undervoltage_protection).state == 0;'
+          then:
+            - number.set:
+                id: cell_voltage_undervoltage_protection
+                value: 2.650
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(cell_voltage_overvoltage_recovery).state) || id(cell_voltage_overvoltage_recovery).state == 0;'
+          then:
+            - number.set:
+                id: cell_voltage_overvoltage_recovery
+                value: 3.400
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(cell_voltage_overvoltage_protection).state) || id(cell_voltage_overvoltage_protection).state == 0;'
+          then:
+            - number.set:
+                id: cell_voltage_overvoltage_protection
+                value: 3.600
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(cell_request_charge_voltage).state) || id(cell_request_charge_voltage).state == 0;'
+          then:
+            - number.set:
+                id: cell_request_charge_voltage
+                value: 3.450
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(cell_request_float_voltage).state) || id(cell_request_float_voltage).state == 0;'
+          then:
+            - number.set:
+                id: cell_request_float_voltage
+                value: 3.375
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(balance_trigger_voltage).state) || id(balance_trigger_voltage).state == 0;'
+          then:
+            - number.set:
+                id: balance_trigger_voltage
+                value: 0.005
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(inverter_charger_current).state) || id(inverter_charger_current).state == 0;'
+          then:
+            - number.set:
+                id: inverter_charger_current
+                value: 45
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(batt_high_voltage).state) || id(batt_high_voltage).state == 0;'
+          then:
+            - number.set:
+                id: batt_high_voltage
+                value: 57.6
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(batt_low_voltage).state) || id(batt_low_voltage).state == 0;'
+          then:
+            - number.set:
+                id: batt_low_voltage
+                value: 48.0
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(batt_stop_chg).state) || id(batt_stop_chg).state == 0;'
+          then:
+            - number.set:
+                id: batt_stop_chg
+                value: 55.2
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(batt_stop_dischg).state) || id(batt_stop_dischg).state == 0;'
+          then:
+            - number.set:
+                id: batt_stop_dischg
+                value: 48.0
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(batt_absorb_voltage).state) || id(batt_absorb_voltage).state == 0;'
+          then:
+            - number.set:
+                id: batt_absorb_voltage
+                value: 55.2
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(batt_float_voltage).state) || id(batt_float_voltage).state == 0;'
+          then:
+            - number.set:
+                id: batt_float_voltage
+                value: 54.0
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(charge_overtemperature_protection).state) || id(charge_overtemperature_protection).state == 0;'
+          then:
+            - number.set:
+                id: charge_overtemperature_protection
+                value: 45
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(charge_overtemperature_protection_recovery).state) || id(charge_overtemperature_protection_recovery).state == 0;'
+          then:
+            - number.set:
+                id: charge_overtemperature_protection_recovery
+                value: 35
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(discharge_overtemperature_protection).state) || id(discharge_overtemperature_protection).state == 0;'
+          then:
+            - number.set:
+                id: discharge_overtemperature_protection
+                value: 45
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(discharge_overtemperature_protection_recovery).state) || id(discharge_overtemperature_protection_recovery).state == 0;'
+          then:
+            - number.set:
+                id: discharge_overtemperature_protection_recovery
+                value: 35
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(charge_undertemperature_protection).state) || id(charge_undertemperature_protection).state == 0;'
+          then:
+            - number.set:
+                id: charge_undertemperature_protection
+                value: 2
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(charge_undertemperature_protection_recovery).state) || id(charge_undertemperature_protection_recovery).state == 0;'
+          then:
+            - number.set:
+                id: charge_undertemperature_protection_recovery
+                value: 5
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(discharge_undertemperature_protection).state) || id(discharge_undertemperature_protection).state == 0;'
+          then:
+            - number.set:
+                id: discharge_undertemperature_protection
+                value: -15
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(discharge_undertemperature_protection_recovery).state) || id(discharge_undertemperature_protection_recovery).state == 0;'
+          then:
+            - number.set:
+                id: discharge_undertemperature_protection_recovery
+                value: -10
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(mosfet_overtemperature_protection).state) || id(mosfet_overtemperature_protection).state == 0;'
+          then:
+            - number.set:
+                id: mosfet_overtemperature_protection
+                value: 75
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(mosfet_overtemperature_protection_recovery).state) || id(mosfet_overtemperature_protection_recovery).state == 0;'
+          then:
+            - number.set:
+                id: mosfet_overtemperature_protection_recovery
+                value: 65
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(heating_start_temperature).state) || id(heating_start_temperature).state == 0;'
+          then:
+            - number.set:
+                id: heating_start_temperature
+                value: 5
+      - if:
+          condition:
+            lambda: 'return std::isnan(id(heating_stop_temperature).state) || id(heating_stop_temperature).state == 0;'
+          then:
+            - number.set:
+                id: heating_stop_temperature
+                value: 20
+
+      - logger.log: "BMS configuration setup complete."
