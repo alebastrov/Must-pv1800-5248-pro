@@ -1846,7 +1846,7 @@ number:
     address: 20132
     value_type: U_WORD
     multiply: 10
-    min_value: 1
+    min_value: 0
     max_value: 120
     step: 1
     # TARGETED CONTROL: The moment the inverter current changes, we evaluate it
