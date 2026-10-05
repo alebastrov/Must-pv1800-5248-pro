@@ -1,10 +1,11 @@
 # Board: NodeMCU-32S (NodeMCU)
 # Definition: definitions/boards/nodemcu-32s/manifest.yaml
 substitutions:
-  mac_address: c8:47:80:13:ee:55
+  mac_address: !secret jk_bms_mac_address
   inverter_id: inverter1
   updates_inverter: 2000ms
   updates_bms: 2000ms
+  TELEGRAM_BOT_TOKEN: !secret my_telegram_token
 
 external_components:
   # - source:
@@ -19,6 +20,8 @@ external_components:
 esphome:
   name: must-pv1800
   friendly_name: inverter-monitor
+  includes:
+    - sender.h
 
 esp32:
   variant: ESP32
@@ -26,9 +29,13 @@ esp32:
   flash_size: 4MB
   framework:
     type: esp-idf
+    version: recommended
     advanced:
       minimum_chip_revision: "3.1"
       sram1_as_iram: true
+    # Allocates a larger stack size to safely handle BLE tasks alongside Modbus
+    sdkconfig_options:
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "8192"
 
 api:
   encryption:
@@ -45,22 +52,32 @@ preferences:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
-captive_portal:
+  power_save_mode: NONE
+  ap:
+    ssid: "Inverter-BMS-WiFi"
+    password: "12345678"
 
 logger:
   level: INFO
   hardware_uart: UART0
+  tx_buffer_size: 256
   logs:
     modbus: INFO
     modbus_controller: INFO
+
+mdns:
+  disabled: true       # Disables network name caching, saving heap RAM
+
+esp32_ble:
+  max_connections: 1       # Slashes RAM allocated for concurrent links
+  max_notifications: 15     # Limits memory slots for data stream subscriptions
 
 esp32_ble_tracker:
   scan_parameters:
     duration: 5s
     interval: 150ms
-    window: 120ms
-    active: true
+    window: 30ms
+    active: false
 
 ble_client:
   mac_address: ${mac_address}
@@ -78,22 +95,26 @@ web_server:
   local: true
 
 status_led:
-  pin: GPIO2
+  pin:
+    number: GPIO2
+    ignore_strapping_warning: true
 
 uart:
   - id: uart_inverter
     baud_rate: 19200
-    rx_buffer_size: 384
     tx_pin: GPIO23
     rx_pin: GPIO22
     stop_bits: 1
     parity: NONE
+    rx_full_threshold: 1
+    rx_timeout: 2
+    rx_buffer_size: 1024
 
 modbus:
   - id: modbus_0
     uart_id: uart_inverter
-    send_wait_time: 200ms
-    turnaround_time: 80ms
+    send_wait_time: 500ms
+    turnaround_time: 100ms
 
 modbus_controller:
   - id: must_inverter
@@ -102,7 +123,6 @@ modbus_controller:
     setup_priority: -10
     max_cmd_retries: 2
     update_interval: ${updates_inverter}
-    command_throttle: 150ms
   - id: must_inverter_slow
     address: 0x04
     modbus_id: modbus_0
@@ -135,6 +155,10 @@ time:
           - sensor.template.publish:
               id: bms_daily_discharge_meter
               state: 0.0
+          - lambda: |-
+              id(battery_in_rest_period) = false;
+              id(permanent_shutdown_active) = false;
+          - logger.log: "Global variables have been reset at 23:00:00"
 
       # ==========================================
       # MONTHLY RESETS
@@ -151,7 +175,7 @@ time:
               auto t = id(sntp_time).now();
               t.increment_day();
               if (t.day_of_month == 1) {
-                id(bms_monthly_charge_meter).publish_state(0.0);
+                id(bms_monthly_charge_meter).publish_state(0.0f);
               }
 
       # DISCHARGE MONTHLY: Runs at 07:00 on the 1st day of every month
@@ -189,32 +213,107 @@ time:
           - sensor.template.publish:
               id: bms_yearly_discharge_meter
               state: 0.0
+
+http_request:
+  id: bms_http_client
+  timeout: 10s
+  verify_ssl: false
+  buffer_size_rx: 2048
+  buffer_size_tx: 1024
+
 globals:
   - id: bms_last_valid_efficiency
     type: float
     restore_value: true
     initial_value: '100.0'
+  - id: battery_in_rest_period
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: permanent_shutdown_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 button:
   - platform: jk_bms_ble
     retrieve_settings:
-      name: "retrieve settings"
+      id: "retrieve_settings"
+      name: "BMS retrieve settings"
       icon: "mdi:cog-transfer"
     retrieve_device_info:
-      name: "retrieve device info"
+      id: "retrieve_device_info"
+      name: "BMS retrieve device info"
       icon: "mdi:information-outline"
     retrieve_logbook:
-      name: "retrieve logbook"
+      id: "retrieve_logbook"
+      name: "BMS retrieve logbook"
       icon: "mdi:book-open-outline"
     shutdown:
-      name: "shutdown"
+      id: "shutdown"
+      name: "BMS shutdown"
       icon: "mdi:power"
     restart:
-      name: "restart"
+      id: "restart"
+      name: "BMS restart"
       icon: "mdi:restart"
     factory_reset:
-      name: "factory reset"
+      id: "factory_reset"
+      name: "BMS factory reset"
       icon: "mdi:factory"
+
+  - platform: template
+    name: "BMS: Clear Fault & Resume Charge"
+    id: bms_recover_from_avoiding_charging
+    icon: "mdi:battery-refresh"
+    on_press:
+      then:
+        - lambda: |-
+            // 1. Проверяем, была ли вообще активна блокировка
+            if (id(permanent_shutdown_active) || id(battery_in_rest_period)) {
+              
+              // 2. Сбрасываем защитные флаги в исходное состояние
+              id(permanent_shutdown_active) = false;
+              id(battery_in_rest_period) = false;
+
+              // 3. Формируем и отправляем красивый отчет в Telegram и лог
+              char msg_buffer[512];
+              snprintf(msg_buffer, sizeof(msg_buffer), 
+                "🔄 *BMS Recovery:* Fault cleared manually via Home Assistant.\\nResuming normal charging operations.");
+              std::string token = "$TELEGRAM_BOT_TOKEN";
+              log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+
+              // 4. Мгновенно перезапускаем основной скрипт вычислений, 
+              // чтобы инвертор вернулся к целевому току зарядки пользователя
+              id(evaluate_charging_safety).execute();
+            } else {
+              // Если кнопка нажата просто так, когда аварии нет — пишем только в локальный лог
+              ESP_LOGI("safety", "Manual recovery pressed, but no active faults detected.");
+            }
+
+  - platform: template
+    name: "Log Battery Status"
+    id: send_status_button
+    icon: "mdi:battery-arrow-up"
+    on_press:
+      then:
+        - lambda: |-
+            // Create a buffer for your text message
+            char msg_buffer[128];
+            
+            // Fetch the state of your existing 'precise_soc' sensor
+            float current_soc = id(precise_soc).state;
+            
+            // Format the message string (using HTML formatting to avoid markdown escaping errors)
+            snprintf(msg_buffer, sizeof(msg_buffer), 
+              "🔋 Battery Status Update"
+              "• Current SoC: %.1f%%", 
+              current_soc
+            );
+            
+            std::string token = "$TELEGRAM_BOT_TOKEN";
+            // Send the message using your logging function
+            log_and_send_tg("status_request", msg_buffer, token, id(bms_http_client));
 
   #  Bit 0  OverLoadRestartForbid   Prevents the inverter from auto-restarting after an overload fault.
   #  Bit 1  OverTempRestartForbid   Prevents the inverter from auto-restarting after an over-temperature fault.
@@ -305,41 +404,55 @@ switch:
 
   - platform: jk_bms_ble
     charging:
-      name: "charging"
+      id: "charging"
+      name: "BMS charging"
       icon: "mdi:battery-charging-wireless"
     discharging:
-      name: "discharging"
+      id: "discharging"
+      name: "BMS discharging"
       icon: "mdi:current-dc" # Core DC power draw path
     balancer:
-      name: "balancer"
+      id: "balancer"
+      name: "BMS balancer"
       icon: "mdi:scale-balance"
     emergency:
-      name: "emergency"
+      id: "emergency"
+      name: "BMS emergency"
       icon: "mdi:car-emergency"
     heating:
-      name: "heating"
+      id: "heating"
+      name: "BMS heating"
       icon: "mdi:heating-coil"
     disable_temperature_sensors:
-      name: "disable temperature sensors"
+      id: "disable_temperature_sensors"
+      name: "BMS disable temperature sensors"
       icon: "mdi:thermometer-off"
     display_always_on:
-      name: "display always on"
+      id: "display_always_on"
+      name: "BMS display always on"
       icon: "mdi:screencast"
     smart_sleep:
-      name: "smart sleep"
+      id: "smart_sleep"
+      name: "BMS smart sleep"
       icon: "mdi:sleep"
     disable_pcl_module:
-      name: "disable pcl module"
+      id: "disable_pcl_module"
+      name: "BMS disable pcl module"
     timed_stored_data:
-      name: "timed stored data"
+      id: "timed_stored_data"
+      name: "BMS timed stored data"
     charging_float_mode:
-      name: "charging float mode"
+      id: "charging_float_mode"
+      name: "BMS charging float mode"
     emergency_button_trigger:
-      name: "emergency button trigger"
+      id: "emergency_button_trigger"
+      name: "BMS emergency button trigger"
     dry_contact_alarm_intermittent:
-      name: "dry contact alarm intermittent"
+      id: "dry_contact_alarm_intermittent"
+      name: "BMS dry contact alarm intermittent"
     discharge_overcurrent_protection_2:
-      name: "discharge overcurrent protection 2"
+      id: "discharge_overcurrent_protection_2"
+      name: "BMS discharge overcurrent protection 2"
 
   - platform: ble_client
     ble_client_id: client0
@@ -350,19 +463,26 @@ binary_sensor:
   - platform: jk_bms_ble
     jk_bms_ble_id: bms0
     balancing:
-      name: "balancing"
+      id: "balancing"
+      name: "BMS balancing"
     charging:
-      name: "charging"
+      id: "charging"
+      name: "BMS charging"
     discharging:
-      name: "discharging"
+      id: "discharging"
+      name: "BMS discharging"
     heating:
-      name: "heating"
+      id: "heating"
+      name: "BMS heating"
     online_status:
-      name: "online status"
+      id: "online_status"
+      name: "BMS online status"
     dry_contact_1:
-      name: "dry contact 1"
+      id: "dry_contact_1"
+      name: "BMS dry contact 1"
     dry_contact_2:
-      name: "dry contact 2"
+      id: "dry_contact_2"
+      name: "BMS dry contact 2"
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25237
@@ -485,11 +605,15 @@ sensor:
     address: 20004
     register_type: holding
     name: "Inverter Hardware version"
+    filters:
+      - throttle: 200s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 20005
     register_type: holding
     name: "Inverter Software version"
+    filters:
+      - throttle: 200s
 
   #Inverter Display Message
   - platform: modbus_controller
@@ -623,6 +747,8 @@ sensor:
     unit_of_measurement: MWh
     device_class: energy
     internal: true
+    filters:
+      - throttle: 10s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15218
@@ -639,6 +765,8 @@ sensor:
     device_class: energy
     lambda: !lambda 'return (id(charger_total_mwh).state * 1000.0 + id(charger_total_kwh).state );'
     accuracy_decimals: 1
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15219
@@ -648,6 +776,8 @@ sensor:
     device_class: duration
     accuracy_decimals: 0
     icon: mdi:flash
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15220
@@ -657,6 +787,8 @@ sensor:
     device_class: duration
     accuracy_decimals: 0
     icon: mdi:flash
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15221
@@ -667,6 +799,8 @@ sensor:
     accuracy_decimals: 0
     icon: mdi:flash
     reuse_previous_range: false
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25201
@@ -754,6 +888,8 @@ sensor:
     icon: mdi:sine-wave
     unit_of_measurement: "V"
     device_class: "voltage"
+    filters:
+      - throttle: 200s
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -764,6 +900,8 @@ sensor:
     unit_of_measurement: "W"
     device_class: "power"
     icon: mdi:shield-flash
+    filters:
+      - throttle: 200s
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -940,6 +1078,8 @@ sensor:
     unit_of_measurement: MWh
     device_class: energy
     internal: true
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25248
@@ -963,6 +1103,8 @@ sensor:
     register_type: holding
     id: buy_mwh
     internal: true
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25250
@@ -988,6 +1130,8 @@ sensor:
     id: sell_mwh
     unit_of_measurement: MWh
     device_class: energy
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25252
@@ -1011,6 +1155,8 @@ sensor:
     unit_of_measurement: MWh
     device_class: energy
     internal: true
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25254
@@ -1028,6 +1174,8 @@ sensor:
     device_class: energy
     accuracy_decimals: 1
     lambda: !lambda return (id(load_mwh).state * 1000.0 + id(load_kwh).state);
+    filters:
+      - throttle: 20s
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25273
@@ -1058,6 +1206,8 @@ sensor:
     device_class: voltage
     icon: mdi:current-dc
     reuse_previous_range: false
+    filters:
+      - throttle: 200s
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1069,7 +1219,7 @@ sensor:
 
   # уровень вайфай сигнала
   - platform: wifi_signal
-    name: "Inverter WiFi signal"
+    name: "Inverter WiFi signal strength"
     entity_category: diagnostic
     device_class: signal_strength
     id: wifi_sig
@@ -1104,21 +1254,21 @@ sensor:
     icon: mdi:battery-arrow-up
 
   - platform: homeassistant
-    entity_id: sensor.hall_inverter_monitor_bms_capacity_remaining
+    entity_id: sensor.local_capacity_remaining
     id: capacity_remaining
     internal: true
     on_value:
       then:
         - component.update: precise_soc
   - platform: homeassistant
-    entity_id: sensor.hall_inverter_monitor_bms_full_charge_capacity
+    entity_id: sensor.local_full_charge_capacity
     id: full_charge_capacity
     internal: true
     on_value:
       then:
         - component.update: precise_soc
   - platform: homeassistant
-    entity_id: sensor.hall_inverter_monitor_bms_state_of_charge
+    entity_id: sensor.bms_state_of_charge
     id: state_of_charge
     internal: true
     on_value:
@@ -1133,14 +1283,14 @@ sensor:
     accuracy_decimals: 2
     update_interval: 10s # Fallback timeframe to recalculate safely
     lambda: |-
-      if (isnan(id(capacity_remaining).state) || isnan(id(full_charge_capacity).state)) {
+      if (isnan(id(local_capacity_remaining).state) || isnan(id(local_full_charge_capacity).state)) {
         if (!isnan(id(state_of_charge).state)) {
           return id(state_of_charge).state;
         }
         return {}; // Return absolutely nothing (prevents "nan %" log spam)
       }
-      if (id(capacity_remaining).state > 0 && id(full_charge_capacity).state > 0) {
-        return (id(capacity_remaining).state / id(full_charge_capacity).state) * 100.0;
+      if (id(local_capacity_remaining).state > 0 && id(local_full_charge_capacity).state > 0) {
+        return (id(local_capacity_remaining).state / id(local_full_charge_capacity).state) * 100.0;
       }
       if (!std::isnan(id(state_of_charge).state)) {
         return id(state_of_charge).state; 
@@ -1153,126 +1303,200 @@ sensor:
     min_cell_voltage:
       name: "BMS min cell voltage"
       icon: mdi:battery-charging-low
+      id: min_cell_voltage
     max_cell_voltage:
       name: "BMS max cell voltage"
       icon: mdi:battery-charging-high
+      id: max_cell_voltage
     min_voltage_cell:
+      id: min_voltage_cell
       name: "BMS min voltage cell"
       icon: mdi:battery-charging-low
     max_voltage_cell:
+      id: max_voltage_cell
       name: "BMS max voltage cell"
       icon: mdi:battery-charging-high
     delta_cell_voltage:
       name: "BMS delta cell voltage"
       icon: mdi:delta
+      id: delta_cell_voltage
     average_cell_voltage:
       name: "BMS average cell voltage"
       icon: mdi:battery-sync
     cell_voltage_1:
       name: "BMS cell voltage 1"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_2:
       name: "BMS cell voltage 2"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_3:
       name: "BMS cell voltage 3"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_4:
       name: "BMS cell voltage 4"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_5:
       name: "BMS cell voltage 5"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_6:
       name: "BMS cell voltage 6"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_7:
       name: "BMS cell voltage 7"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_8:
       name: "BMS cell voltage 8"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_9:
       name: "BMS cell voltage 9"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_10:
       name: "BMS cell voltage 10"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_11:
       name: "BMS cell voltage 11"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_12:
       name: "BMS cell voltage 12"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_13:
       name: "BMS cell voltage 13"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_14:
       name: "BMS cell voltage 14"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_15:
       name: "BMS cell voltage 15"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_voltage_16:
       name: "BMS cell voltage 16"
       icon: mdi:current-dc
+      filters:
+        - throttle: 20s
     cell_resistance_1:
       name: "BMS cell resistance 1"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_2:
       name: "BMS cell resistance 2"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_3:
       name: "BMS cell resistance 3"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_4:
       name: "BMS cell resistance 4"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_5:
       name: "BMS cell resistance 5"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_6:
       name: "BMS cell resistance 6"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_7:
       name: "BMS cell resistance 7"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_8:
       name: "BMS cell resistance 8"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_9:
       name: "BMS cell resistance 9"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_10:
       name: "BMS cell resistance 10"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_11:
       name: "BMS cell resistance 11"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_12:
       name: "BMS cell resistance 12"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_13:
       name: "BMS cell resistance 13"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_14:
       name: "BMS cell resistance 14"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_15:
       name: "BMS cell resistance 15"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     cell_resistance_16:
       name: "BMS cell resistance 16"
       icon: mdi:resistor
+      filters:
+        - throttle: 60s
     total_voltage:
       name: "BMS battery voltage"
+      id: bms_battery_voltage
       icon: mdi:current-dc
+      filters:
+        - throttle: 5s
     current:
       name: "BMS battery current"
       icon: mdi:current-dc
     heating_current:
       name: "BMS heating current"
       icon: mdi:current-dc
+      filters:
+        - throttle: 30s
     power:
       name: "BMS battery power"
       icon: mdi:flash
@@ -1287,23 +1511,36 @@ sensor:
     temperature_sensor_1:
       name: "BMS battery temperature sensor 1"
       icon: mdi:temperature-celsius
+      filters:
+        - throttle: 30s
     temperature_sensor_2:
       name: "BMS battery temperature sensor 2"
       icon: mdi:temperature-celsius
+      filters:
+        - throttle: 30s
     temperature_sensor_3:
       name: "BMS battery temperature sensor 3"
       icon: mdi:temperature-celsius
+      filters:
+        - throttle: 30s
     temperature_sensor_4:
       name: "BMS battery temperature sensor 4"
       icon: mdi:temperature-celsius
+      filters:
+        - throttle: 30s
     temperature_sensor_5:
       name: "BMS battery temperature sensor 5"
       icon: mdi:temperature-celsius
+      filters:
+        - throttle: 30s
     mosfet_temperature:
       name: "BMS MOSFET temperature"
       icon: mdi:temperature-celsius
+      filters:
+        - throttle: 10s
     balancer_status_bitmask:
-      name: "BMS balancer status"
+      name: "BMS balancer status bitmask"
+      id: bms_balancer_status_bitmask
       icon: mdi:list-status
     state_of_charge:
       name: "BMS state of charge"
@@ -1312,23 +1549,33 @@ sensor:
       name: "BMS state of health"
       icon: mdi:state-machine
     capacity_remaining:
+      id: local_capacity_remaining
       name: "BMS capacity remaining"
       icon: mdi:battery-unknown
     full_charge_capacity:
+      id: local_full_charge_capacity
       name: "BMS full charge capacity"
       icon: mdi:battery-check
+      filters:
+        - throttle: 600s
     charging_cycles:
       name: "BMS charging cycles"
       icon: mdi:recycle-variant
+      filters:
+        - throttle: 600s
     total_charging_cycle_capacity:
       name: "BMS total charging cycle capacity"
       icon: mdi:battery-unknown
     total_runtime:
       name: "BMS total runtime"
       icon: mdi:watch-variant
+      filters:
+        - throttle: 60s
     power_on_count:
       name: "BMS power on count"
       icon: mdi:power
+      filters:
+        - throttle: 60s
     balancing_current:
       name: "BMS balancing current"
       icon: mdi:current-dc
@@ -1346,6 +1593,8 @@ sensor:
     detail_log_entry_count:
       name: "BMS detail log entry count"
       icon: mdi:math-log
+      filters:
+        - throttle: 60s
     battery_type_id:
       name: "BMS battery type id"
 
@@ -1359,6 +1608,7 @@ sensor:
     device_class: energy
     restore: true
     filters:
+      - throttle: 60s
       - multiply: 0.001 # Converts Watt-hours to kiloWatt-hours
 
   - platform: total_daily_energy
@@ -1370,6 +1620,7 @@ sensor:
     restore: true
     accuracy_decimals: 3
     filters:
+      - throttle: 60s
       - multiply: 0.001 # Converts Watt-hours to kiloWatt-hours
 
     # ==================== MONTHLY METERS ====================
@@ -1382,6 +1633,7 @@ sensor:
     accuracy_decimals: 3
     restore: true
     filters:
+      - throttle: 60s
       - multiply: 0.001
 
   - platform: total_daily_energy
@@ -1393,6 +1645,7 @@ sensor:
     accuracy_decimals: 3
     restore: true
     filters:
+      - throttle: 60s
       - multiply: 0.001
 
   # ==================== YEARLY METERS ====================
@@ -1405,6 +1658,7 @@ sensor:
     accuracy_decimals: 3
     restore: true
     filters:
+      - throttle: 60s
       - multiply: 0.001
 
   - platform: total_daily_energy
@@ -1416,6 +1670,7 @@ sensor:
     accuracy_decimals: 3
     restore: true
     filters:
+      - throttle: 60s
       - multiply: 0.001
 
 text_sensor:
@@ -1595,8 +1850,10 @@ text_sensor:
       name: "BMS errors"
       icon: mdi:math-log
     errors_bitmask_hex:
+      id: errors_bitmask_hex
       name: "BMS errors bitmask hex"
     balancer_status:
+      id: balancer_status
       name: "BMS balancer status"
       icon: mdi:list-status
     total_runtime_formatted:
@@ -1689,6 +1946,29 @@ select:
     load_config_preset:
       name: "BMS Load Config Preset"
 
+  - platform: template
+    name: "Target Charging Current Selector"
+    id: target_charging_current_select
+    icon: mdi:tune
+    optimistic: true
+    options:
+      - "1"
+      - "2"
+      - "5"
+      - "10"
+      - "15"
+      - "20"
+      - "25"
+      - "35"
+      - "50"
+      - "65"
+      - "90"
+    on_value:
+      then:
+        # Reset the permanent shutdown flag if the user manually tries to choose a new target current
+        - lambda: 'id(permanent_shutdown_active) = false;'
+        - script.execute: evaluate_charging_safety
+
 number:
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1713,7 +1993,7 @@ number:
     device_class: voltage
     address: 10104
     value_type: U_WORD
-    min_value: 53
+    min_value: 54
     max_value: 56
     step: 0.1
     multiply: 10
@@ -1727,7 +2007,7 @@ number:
     device_class: voltage
     address: 20118
     value_type: U_WORD
-    min_value: 44
+    min_value: 48
     max_value: 58
     step: 0.1
     multiply: 10
@@ -1739,7 +2019,7 @@ number:
     unit_of_measurement: "V"
     device_class: voltage
     icon: mdi:battery-arrow-up
-    min_value: 44
+    min_value: 48
     max_value: 58
     address: 20119
     value_type: U_WORD
@@ -1756,7 +2036,7 @@ number:
     address: 20127
     value_type: U_WORD
     multiply: 10
-    min_value: 40
+    min_value: 44
     max_value: 48
     step: 0.1
 
@@ -1770,7 +2050,7 @@ number:
     address: 20128
     value_type: U_WORD
     multiply: 10
-    min_value: 58
+    min_value: 55
     max_value: 60
     step: 0.1
 
@@ -1796,34 +2076,35 @@ number:
       max_value: 0.040
       step: 0.001
     cell_count:
+      id: cell_count
       name: "BMS cell count"
     total_battery_capacity:
       name: "BMS total battery capacity"
     cell_voltage_overvoltage_protection:
       name: "BMS cell voltage overvoltage protection"
-      min_value: 3.49
+      min_value: 3.48
       max_value: 3.65
-      step: 0.01
+      step: 0.005
     cell_voltage_overvoltage_recovery:
       name: "BMS cell voltage overvoltage recovery"
       min_value: 3.36
       max_value: 3.48
-      step: 0.01
+      step: 0.005
     cell_voltage_undervoltage_protection:
       name: "BMS cell voltage undervoltage protection"
       min_value: 2.52
       max_value: 2.9
-      step: 0.01
+      step: 0.005
     cell_voltage_undervoltage_recovery:
       name: "BMS cell voltage undervoltage recovery"
       min_value: 2.96
       max_value: 3.1
-      step: 0.01
+      step: 0.005
     balancing_start_voltage:
       name: "BMS balancing start voltage"
       min_value: 2.5
       max_value: 3.6
-      step: 0.01
+      step: 0.005
     voltage_calibration:
       name: "BMS voltage calibration"
     current_calibration:
@@ -1832,7 +2113,7 @@ number:
       name: "BMS power off voltage"
       min_value: 2.5
       max_value: 2.7
-      step: 0.01
+      step: 0.005
     max_balance_current:
       name: "BMS max balance current"
       min_value: 0.0
@@ -1850,8 +2131,14 @@ number:
       step: 1
     smart_sleep_voltage:
       name: "BMS smart sleep voltage"
+      min_value: 3.35
+      max_value: 3.4
+      step: 0.001
     smart_sleep_delay:
       name: "BMS smart sleep delay"
+      min_value: 1
+      max_value: 100
+      step: 1
     emergency_duration:
       name: "BMS emergency duration"
     cell_soc100_voltage:
@@ -1861,18 +2148,18 @@ number:
       step: 0.005
     cell_soc0_voltage:
       name: "BMS cell soc0 voltage"
-      min_value: 2.75
-      max_value: 3.15
+      min_value: 2.8
+      max_value: 3.1
       step: 0.005
     cell_request_charge_voltage:
       name: "BMS cell request charge voltage"
-      min_value: 3.35
-      max_value: 3.65
+      min_value: 3.34
+      max_value: 3.6
       step: 0.005
     cell_request_float_voltage:
       name: "BMS cell request float voltage"
-      min_value: 3.38
-      max_value: 3.55
+      min_value: 3.34
+      max_value: 3.58
       step: 0.005
     cell_request_charge_voltage_time:
       name: "BMS cell request charge voltage time"
@@ -1892,13 +2179,13 @@ number:
       name: "BMS short circuit protection recovery time"
     charge_overtemperature_protection:
       name: "BMS charge overtemperature protection"
-      min_value: 39
+      min_value: 36
       max_value: 55
       step: 1
     charge_overtemperature_protection_recovery:
       name: "BMS charge overtemperature protection recovery"
-      min_value: 25
-      max_value: 38
+      min_value: 30
+      max_value: 40
       step: 1
     discharge_overtemperature_protection:
       name: "BMS discharge overtemperature protection"
@@ -1952,3 +2239,161 @@ number:
       min_value: 12
       max_value: 24
       step: 1
+
+  - platform: template
+    name: "Protection: Max Delta Allowed"
+    id: input_delta_trigger_threshold
+    icon: mdi:vector-difference-aberrant
+    unit_of_measurement: "V"
+    min_value: 0.010
+    max_value: 0.045
+    step: 0.005
+    initial_value: 0.015
+    optimistic: true
+
+  - platform: template
+    name: "Protection: Max Cell Voltage Allowed"
+    id: input_max_cell_voltage
+    icon: mdi:vector-difference-aberrant
+    unit_of_measurement: "V"
+    min_value: 3.44
+    max_value: 3.65
+    step: 0.005
+    initial_value: 3.45
+    optimistic: true
+
+  - platform: template
+    name: "Protection: Max Battery Voltage Allowed"
+    id: input_max_battery_voltage
+    icon: mdi:vector-difference-aberrant
+    unit_of_measurement: "V"
+    min_value: 54
+    max_value: 58
+    step: 0.05
+    initial_value: 55.6
+    optimistic: true
+
+script:
+  # MAIN EVALUATION: Controls baseline operations and manages dynamic high-delta interventions
+  - id: evaluate_charging_safety
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              // Added safety checking to prevent NaN errors on the new threshold sensors
+              if (id(target_charging_current_select).current_option().empty() || 
+                  std::isnan(id(delta_cell_voltage).state) ||
+                  std::isnan(id(input_delta_trigger_threshold).state) ||
+                  std::isnan(id(input_max_cell_voltage).state) ||
+                  std::isnan(id(inverter_charger_current).state) ||
+                  std::isnan(id(max_cell_voltage).state) ||
+                  std::isnan(id(bms_battery_voltage).state)) {
+                return false;
+              }
+              // Lock down execution completely if a permanent low-current shutdown was flagged
+              if (id(permanent_shutdown_active)) return false;
+              return true;
+          then:
+            - lambda: |-
+                float cell_delta = id(delta_cell_voltage).state;
+                float trigger_v = id(input_delta_trigger_threshold).state;
+                float active_current = id(inverter_charger_current).state;
+
+                // Считываем точные данные из сенсоров: номер ячейки и её вольтаж
+                int bad_cell_num = (int)id(max_voltage_cell).state;
+                float bad_cell_v = id(max_cell_voltage).state;
+                float max_allowed_cell_v = id(input_max_cell_voltage).state;
+                
+                float max_allowed_batt_v = id(input_max_battery_voltage).state;
+                float total_batt_v = id(bms_battery_voltage).state;
+
+                // Выделяем безопасный буфер под текст сообщения (512 байт)
+                char msg_buffer[512];
+
+                // Проверяем все три условия перегрузки (High Delta OR Overvoltage Cell OR Overvoltage Pack)
+                bool trigger_intervention = (cell_delta >= trigger_v) || 
+                                            (bad_cell_v > max_allowed_cell_v) || 
+                                            (total_batt_v > 55.4f);
+
+                // 1. CRITICAL OVER-PARAMETER INTERVENTION
+                if (trigger_intervention) {
+                  if (!id(battery_in_rest_period)) {
+
+                    // Определяем причину срабатывания для более точного логирования
+                    const char* reason = "Cell Delta / Overvoltage Threshold Exceeded";
+                    char reason_buffer[128];
+
+                    // Приоритетно определяем причину срабатывания с подстановкой вольтажа
+                    if (bad_cell_v >= max_allowed_cell_v) {
+                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Max Cell Voltage Limit (>= %.3f V)", max_allowed_cell_v);
+                    } else if (total_batt_v > max_allowed_batt_v) {
+                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Pack Battery Voltage Limit (> %.2f V)", max_allowed_batt_v);
+                    } else {
+                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Cell Delta Threshold Exceeded (>= %.3f V)", trigger_v);
+                    }
+
+                    // ВАРИАНТ А: Если ток уже меньше 2А -> Полное перманентное отключение
+                    if (active_current < 2.0f) {
+                      
+                      snprintf(msg_buffer, sizeof(msg_buffer), 
+                        "🚨 *CRITICAL: PERMANENT SHUTDOWN*\\n"
+                        "Battery is saturated (Current < 2A with High Cell/Delta/Pack Max).\\n"
+                        "Reason: %s\\n\\n"
+                        "📈 *Metrics:*\\n"
+                        "• Cell Delta: %.3f V\\n"
+                        "• Current: %.1f A\\n"
+                        "• Battery Voltage: %.2f V\\n"
+                        "• *Bad Cell: #%d (%.3f V)*\\n\\n"
+                        "Charging stopped completely until manual intervention.", 
+                        reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
+                      
+                      std::string token = "$TELEGRAM_BOT_TOKEN";
+                      // Логирует локально через кастомную функцию
+                      log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+
+                      id(permanent_shutdown_active) = true;
+                      
+                      auto call = id(inverter_charger_current).make_call();
+                      call.set_value(1.0f); // Forces the inverter to its absolute lowest possible state
+                      call.perform();
+                      return;
+                    }
+
+                    // ВАРИАНТ Б: Переход в стандартный 15-минутный режим динамического восстановления
+                    snprintf(msg_buffer, sizeof(msg_buffer), 
+                      "⚠️ *WARNING: DYNAMIC RECOVERY*\\n"
+                      "Threshold breach detected. Dropping current for a 15m rest.\\n"
+                      "Reason: %s\\n\\n"
+                      "📈 *Metrics:*\\n"
+                      "• Cell Delta: %.3f V\\n"
+                      "• Current Before: %.1f A\\n"
+                      "• Pack Voltage: %.2f V\\n"
+                      "• *Highest Cell: #%d (%.3f V)*", 
+                      reason, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
+                    std::string token = "$TELEGRAM_BOT_TOKEN";
+                    
+                    // Логирует локально через вашу кастомную функцию
+                    log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+
+                    id(battery_in_rest_period) = true;
+                    
+                    auto call = id(inverter_charger_current).make_call();
+                    call.set_value(1.0f);
+                    call.perform();
+
+                    id(cooldown_rest_timer).execute();
+                  }
+                  return;
+                }
+                
+
+  # COOLDOWN COUNTDOWN TIMER (Only fires for high-current delta events)
+  - id: cooldown_rest_timer
+    mode: single
+    then:
+      - delay: 15min
+      - lambda: |-
+          ESP_LOGI("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
+          id(battery_in_rest_period) = false;
+          id(evaluate_charging_safety).execute();
