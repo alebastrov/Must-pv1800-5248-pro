@@ -467,9 +467,16 @@ binary_sensor:
       id: "dry_contact_2"
       name: "BMS dry contact 2"
 
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 15211
+    register_type: holding
+    name: "Inverter Relay Status Battery"
+    icon: mdi:electric-switch
+    device_class: opening
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 15212
     register_type: holding
     name: "Inverter Relay Status PV"
@@ -477,7 +484,7 @@ binary_sensor:
     device_class: opening
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25237
     register_type: holding
     name: "Inverter Relay Status"
@@ -485,7 +492,7 @@ binary_sensor:
     device_class: opening
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25238
     register_type: holding
     name: "Inverter Relay Status Grid"
@@ -493,7 +500,7 @@ binary_sensor:
     device_class: opening
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25239
     register_type: holding
     name: "Inverter Relay Status Load"
@@ -501,7 +508,7 @@ binary_sensor:
     device_class: opening
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25240
     register_type: holding
     name: "Inverter Relay Status NLine"
@@ -509,7 +516,7 @@ binary_sensor:
     device_class: opening
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25241
     register_type: holding
     name: "Inverter Relay Status DC"
@@ -517,7 +524,7 @@ binary_sensor:
     device_class: opening
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter
+    modbus_controller_id: must_inverter_slow
     address: 25242
     register_type: holding
     name: "Inverter Relay Status Earth"
@@ -626,6 +633,8 @@ sensor:
     unit_of_measurement: "W"
     device_class: power
     accuracy_decimals: 0
+
+  # Block 15xxx (MPPT/Charger)
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15201
@@ -633,7 +642,7 @@ sensor:
     id: pv_charger_work_state
     internal: true
     register_type: holding
-    #0: "Initialization", 1: "Selftest", 2: "Work", 3: "Stop",
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15202
@@ -641,7 +650,7 @@ sensor:
     internal: true
     id: pv_charger_mppt_state
     register_type: holding
-    #0: "Stop", 1: "MPPT", 2: "Current limiting",
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15203
@@ -649,8 +658,7 @@ sensor:
     id: pv_charger_charging_state
     internal: true
     register_type: holding
-    # 0: "Stop", 1: "Absorb charge", 2: "Float charge", 3: "Equalization charge",
-  # 15204 reserved
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15205
@@ -662,6 +670,7 @@ sensor:
     icon: mdi:current-dc
     filters:
       multiply: 0.1
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15206
@@ -673,6 +682,7 @@ sensor:
     icon: mdi:current-dc
     filters:
       multiply: 0.1
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15207
@@ -684,6 +694,7 @@ sensor:
     icon: mdi:current-dc
     filters:
       multiply: 0.1
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15208
@@ -694,6 +705,7 @@ sensor:
     device_class: power
     accuracy_decimals: 1
     icon: mdi:flash
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15209
@@ -704,6 +716,7 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15210
@@ -714,8 +727,7 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
-    # 15211: ["BatteryRelay", "Battery Relay", 1, ""],
-    # 15212: ["PvRelay", "Pv. Relay", 1, ""],
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     address: 15213
@@ -738,6 +750,7 @@ sensor:
     internal: true
     filters:
       - throttle: 10s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15218
@@ -748,6 +761,7 @@ sensor:
     internal: true
     filters:
       multiply: 0.1
+
   - platform: template
     name: "Inverter PV Charger Accumulated Charger Power"
     unit_of_measurement: kWh
@@ -756,6 +770,7 @@ sensor:
     accuracy_decimals: 1
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15219
@@ -767,6 +782,7 @@ sensor:
     icon: mdi:flash
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15220
@@ -778,6 +794,7 @@ sensor:
     icon: mdi:flash
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15221
@@ -1254,7 +1271,7 @@ sensor:
   - platform: integration
     name: "BMS Total Lifetime Charge"
     id: bms_total_lifetime_charge
-    sensor: charging_power_sensor # <-- Point to your raw charge power sensor
+    sensor: charging_power_sensor
     time_unit: h
     integration_method: left
     accuracy_decimals: 1
@@ -1283,6 +1300,7 @@ sensor:
     on_value:
       then:
         - component.update: precise_soc
+
   - platform: template
     name: "BMS SOC"
     id: precise_soc
@@ -1618,7 +1636,7 @@ sensor:
     restore: true
     filters:
       - throttle: 60s
-      - multiply: 0.001 # Converts Watt-hours to kiloWatt-hours
+      - multiply: 0.001
 
   - platform: total_daily_energy
     name: "BMS Daily Charge Meter"
@@ -1630,7 +1648,7 @@ sensor:
     accuracy_decimals: 3
     filters:
       - throttle: 60s
-      - multiply: 0.001 # Converts Watt-hours to kiloWatt-hours
+      - multiply: 0.001
 
     # ==================== MONTHLY METERS ====================
   - platform: total_daily_energy
@@ -1724,12 +1742,13 @@ text_sensor:
         case 3: return {"Grid"};
         default: return {"Unknown"};
       }
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     name: "Inverter Machine Type"
     address: 20000
     register_type: holding
-    response_size: 4 # 2 registers = 4 bytes of total data
+    response_size: 4 # 2 registers at the same time = 4 bytes of total data
     lambda: |-
       // High register characters (e.g., 20566 -> 0x5056 -> 'P', 'V')
       char high_char1 = data[0]; 
@@ -1840,6 +1859,21 @@ text_sensor:
       }
 
   - platform: template
+    name: "Inverter PV Charger Charging Mode"
+    id: inverter_charger_charging_mode
+    icon: "mdi:solar-power"
+    update_interval: 10s
+    lambda: |-
+      int raw_state = id(pv_charger_charging_state).state;
+      switch(raw_state) {
+        case 0:  return {"Off / Idle"};
+        case 1:  return {"Charge: Absorption"};
+        case 2:  return {"Charge: Floating"};
+        case 3:  return {"Charge: Equalization"};
+        default: return "Unknown PV Charger Charging state value (" + to_string(raw_state) + ")";
+      }
+
+  - platform: template
     name: "Inverter PV Charger Work Mode"
     id: pv_charger_work_mode
     icon: "mdi:solar-power-variant"
@@ -1848,10 +1882,10 @@ text_sensor:
       int raw_state = id(pv_charger_work_state).state;
       switch(raw_state) {
         case 0:  return {"Off / Initializing"};
-        case 1:  return {"Standby"};
-        case 2:  return {"PV Charging"};
-        case 3:  return {"Charging Complete"};
-        case 4:  return {"Stop / Fault"};
+        case 1:  return {"Self-test / Standby"};
+        case 2:  return {"On / PV Charging"};
+        case 3:  return {"Off / Charging Complete"};
+        case 4:  return {"Fault"};
         default: return "Unknown PV Charger work state value (" + to_string(raw_state) + ")";
       }
 
