@@ -466,13 +466,8 @@ binary_sensor:
     dry_contact_2:
       id: "dry_contact_2"
       name: "BMS dry contact 2"
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter
-    address: 25237
-    register_type: holding
-    name: "Inverter Relay Status"
-    icon: mdi:electric-switch
-    device_class: opening
+
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15212
@@ -480,6 +475,15 @@ binary_sensor:
     name: "Inverter Relay Status PV"
     icon: mdi:electric-switch
     device_class: opening
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 25237
+    register_type: holding
+    name: "Inverter Relay Status"
+    icon: mdi:electric-switch
+    device_class: opening
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25238
@@ -487,6 +491,7 @@ binary_sensor:
     name: "Inverter Relay Status Grid"
     icon: mdi:electric-switch
     device_class: opening
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25239
@@ -494,6 +499,7 @@ binary_sensor:
     name: "Inverter Relay Status Load"
     icon: mdi:electric-switch
     device_class: opening
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25240
@@ -501,6 +507,7 @@ binary_sensor:
     name: "Inverter Relay Status NLine"
     icon: mdi:electric-switch
     device_class: opening
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25241
@@ -508,6 +515,7 @@ binary_sensor:
     name: "Inverter Relay Status DC"
     icon: mdi:electric-switch
     device_class: opening
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25242
@@ -515,6 +523,8 @@ binary_sensor:
     name: "Inverter Relay Status Earth"
     icon: mdi:electric-switch
     device_class: opening
+
+  # 25261-25266 - text sensors
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -800,6 +810,7 @@ sensor:
     reuse_previous_range: false
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25201
@@ -807,6 +818,31 @@ sensor:
     name: "Inverter Work State"
     id: inverter_work_state
     internal: true
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    name: "Inverter Grade AC Voltage"
+    address: 25202
+    register_type: holding
+    value_type: S_WORD
+    icon: mdi:sine-wave
+    unit_of_measurement: "V"
+    device_class: "voltage"
+    filters:
+      - throttle: 200s
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    name: "Inverter Grade Rated Power"
+    address: 25203
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: "power"
+    icon: mdi:shield-flash
+    filters:
+      - throttle: 200s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25205
@@ -818,6 +854,7 @@ sensor:
     icon: mdi:current-dc
     filters:
       multiply: 0.1
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25206
@@ -877,30 +914,6 @@ sensor:
     icon: mdi:current-dc
     filters:
       multiply: 0.1
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    name: "Inverter Grade AC Voltage"
-    address: 25202
-    register_type: holding
-    value_type: S_WORD
-    icon: mdi:sine-wave
-    unit_of_measurement: "V"
-    device_class: "voltage"
-    filters:
-      - throttle: 200s
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    name: "Inverter Grade Rated Power"
-    address: 25203
-    register_type: holding
-    value_type: S_WORD
-    unit_of_measurement: "W"
-    device_class: "power"
-    icon: mdi:shield-flash
-    filters:
-      - throttle: 200s
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -1028,6 +1041,7 @@ sensor:
     accuracy_decimals: 2
     filters:
       multiply: 0.01
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25226
@@ -1049,6 +1063,7 @@ sensor:
     unit_of_measurement: "°C"
     device_class: temperature
     icon: mdi:temperature-celsius
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25234
@@ -1058,6 +1073,7 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25235
@@ -1067,6 +1083,8 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
+
+  # 25237-25242 - binary sensors
 
   # Inverter Accumulated discharge power
   - platform: modbus_controller
@@ -1079,6 +1097,7 @@ sensor:
     internal: true
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25248
@@ -1089,12 +1108,14 @@ sensor:
     internal: true
     filters:
       multiply: 0.1
+
   - platform: template
     name: "Inverter Accumulated Discharge Power"
     unit_of_measurement: kWh
     device_class: energy
     accuracy_decimals: 1
     lambda: !lambda 'return (id(discharger_total_mwh).state * 1000.0 + id(discharger_total_kwh).state);'
+
   # Inverter Accumulated buy power since last reset
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1104,6 +1125,7 @@ sensor:
     internal: true
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25250
@@ -1114,6 +1136,7 @@ sensor:
     internal: true
     filters:
       multiply: 0.1
+
   - platform: template
     name: "Inverter Accumulated Buy Power"
     unit_of_measurement: kWh
@@ -1121,6 +1144,7 @@ sensor:
     lambda: |-
       return (id(buy_mwh).state * 1000.0 + id(buy_kwh).state);
     accuracy_decimals: 1
+
   # Inverter Accumulated sell power since last reset
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1131,6 +1155,7 @@ sensor:
     device_class: energy
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25252
@@ -1140,11 +1165,13 @@ sensor:
     device_class: energy
     filters:
       multiply: 0.1
+
   - platform: template
     name: "Inverter Accumulated Sell Power"
     unit_of_measurement: kWh
     accuracy_decimals: 1
     lambda: !lambda return (id(sell_mwh).state * 1000.0 + id(sell_kwh).state);
+
   # Inverter Accumulated load power
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1156,6 +1183,7 @@ sensor:
     internal: true
     filters:
       - throttle: 20s
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25254
@@ -1175,6 +1203,8 @@ sensor:
     lambda: !lambda return (id(load_mwh).state * 1000.0 + id(load_kwh).state);
     filters:
       - throttle: 20s
+
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25273
@@ -1755,6 +1785,7 @@ text_sensor:
       char buffer[16];
       sprintf(buffer, "%d.%02d.%02d", major, minor, patch);
       return {buffer};
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     bitmask: 0
@@ -1932,17 +1963,6 @@ select:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    id: charger_source_priority
-    name: "Inverter Charger Source Priority"
-    icon: mdi:numeric
-    address: 20143
-    optionsmap:
-      "CSO (Solar first)": 0
-      "SNU (Solar and utility)": 2
-      "OSO (Solar only)": 3
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
     address: 20111
     id: inverter_ac_input_voltage_range
     name: "Inverter AC input Voltage Range"
@@ -1952,6 +1972,17 @@ select:
       "UPS (170-280 VAC)": 1
       "APL (90-280 VAC)": 2
       "GEN (Generator)": 3
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: charger_source_priority
+    name: "Inverter Charger Source Priority"
+    icon: mdi:numeric
+    address: 20143
+    optionsmap:
+      "CSO (Solar first)": 0
+      "SNU (Solar and utility)": 2
+      "OSO (Solar only)": 3
 
   - platform: jk_bms_ble
     multiplexed_port_mode:
@@ -1992,8 +2023,8 @@ number:
     device_class: voltage
     address: 10103
     value_type: U_WORD
-    min_value: 53
-    max_value: 56
+    min_value: 53.0
+    max_value: 56.0
     step: 0.1
     multiply: 10
 
@@ -2006,8 +2037,8 @@ number:
     device_class: voltage
     address: 10104
     value_type: U_WORD
-    min_value: 54
-    max_value: 56
+    min_value: 54.0
+    max_value: 56.0
     step: 0.1
     multiply: 10
 
@@ -2020,8 +2051,8 @@ number:
     device_class: voltage
     address: 20118
     value_type: U_WORD
-    min_value: 48
-    max_value: 58
+    min_value: 48.0
+    max_value: 58.0
     step: 0.1
     multiply: 10
 
@@ -2032,8 +2063,8 @@ number:
     unit_of_measurement: "V"
     device_class: voltage
     icon: mdi:battery-arrow-up
-    min_value: 48
-    max_value: 58
+    min_value: 48.0
+    max_value: 58.0
     address: 20119
     value_type: U_WORD
     multiply: 10
@@ -2049,8 +2080,8 @@ number:
     address: 20127
     value_type: U_WORD
     multiply: 10
-    min_value: 44
-    max_value: 48
+    min_value: 44.0
+    max_value: 48.0
     step: 0.1
 
   - platform: modbus_controller
@@ -2280,10 +2311,10 @@ number:
     id: input_max_battery_voltage
     icon: mdi:vector-difference-aberrant
     unit_of_measurement: "V"
-    min_value: 54
-    max_value: 58
+    min_value: 54.0
+    max_value: 58.0
     step: 0.05
-    initial_value: 55.6
+    initial_value: 55.0
     optimistic: true
 
 script:
