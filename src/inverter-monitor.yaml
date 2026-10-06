@@ -1,5 +1,7 @@
 # Board: NodeMCU-32S (NodeMCU)
 # Definition: definitions/boards/nodemcu-32s/manifest.yaml
+# also see https://github.com/MarkNjunge/must-inverter-monitor/blob/master/main.py
+# https://github.com/softwarecrash/Solar2MQTT/wiki/Wiring-Diagram
 substitutions:
   mac_address: !secret jk_bms_mac_address
   inverter_id: inverter1
@@ -53,6 +55,7 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: NONE
+
   ap:
     ssid: "Inverter-BMS-WiFi"
     password: "12345678"
@@ -615,7 +618,16 @@ sensor:
     filters:
       - throttle: 200s
 
-  #Inverter Display Message
+  # Inverter BMS section if connected
+    # Block 1xx (External BMS)
+    # 109: ["BMS_Battery_Voltage", "BMS Battery Voltage", 0.1 , "V"],
+    # 110: ["BMS_Battery_Current", "BMS Battery Current", 0.1 , "A"],
+    # 111: ["BMS_Battery_Temperature", "BMS Battery Temperature", 1 , "C"],
+    # 112: ["BMS_Battery_Errors", "BMS Battery Error", 1 , ""],
+    # 113: ["BMS_Battery_SOC", "BMS Battery SOC", 1 , "%"],
+    # 114: ["BMS_Battery_SOH", "BMS Battery SOH", 1 , "%"]
+
+  # Inverter Display Message
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 10103
@@ -651,6 +663,7 @@ sensor:
     id: pv_charger_work_state
     internal: true
     register_type: holding
+    #0: "Initialization", 1: "Selftest", 2: "Work", 3: "Stop",
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15202
@@ -658,6 +671,7 @@ sensor:
     internal: true
     id: pv_charger_mppt_state
     register_type: holding
+    #0: "Stop", 1: "MPPT", 2: "Current limiting",
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15203
@@ -665,6 +679,7 @@ sensor:
     id: pv_charger_charging_state
     internal: true
     register_type: holding
+    # 0: "Stop", 1: "Absorb charge", 2: "Float charge", 3: "Equalization charge",
   # 15204 reserved
   - platform: modbus_controller
     modbus_controller_id: must_inverter
@@ -729,16 +744,20 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
+    # 15211: ["BatteryRelay", "Battery Relay", 1, ""],
+    # 15212: ["PvRelay", "Pv. Relay", 1, ""],
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     address: 15213
     register_type: holding
-    name: "Inverter Error Messages Count"
+    name: "Inverter PV Charger Error Messages Count"
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     address: 15214
     register_type: holding
-    name: "Inverter Warning Messages Count"
+    name: "Inverter PV Charger Warning Messages Count"
+    # 15215: ["BattVolGrade", "BattVolGrade", 1, "V"],
+    # 15216: ["RatedCurrent", "Rated Current", 0.1, "A"],
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     address: 15217
@@ -1899,17 +1918,31 @@ text_sensor:
 select:
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
+    id: charger_state
+    name: "Inverter Charger State"
+    icon: mdi:numeric
+    address: 15203
+    optionsmap:
+      "Stop / Idle": 0
+      "Absorption": 1
+      "Floating": 2
+      "Equalization": 3
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
     id: energy_eco_mode
     name: "Inverter Eco Mode"
+    icon: mdi:numeric
     address: 20104
     optionsmap:
       "Off / Output is connected always": 0
       "On / Output is disconnected if no load": 1
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     id: energy_use_mode
     name: "Inverter Energy Use Mode"
-    icon: mdi:solar-power
+    icon: mdi:numeric
     address: 20109
     optionsmap:
       "SBU (Solar/battery/utility)": 1
@@ -1933,7 +1966,7 @@ select:
     address: 20111
     id: inverter_ac_input_voltage_range
     name: "Inverter AC input Voltage Range"
-    icon: mdi:current-dc
+    icon: mdi:numeric
     optionsmap:
       "VDE (184-253 VAC)": 0
       "UPS (170-280 VAC)": 1
