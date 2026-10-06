@@ -226,14 +226,10 @@ button:
     icon: mdi:refresh
     on_press:
       then:
-        - lambda: |-
-            auto *controller = id(must_inverter_super_slow);
-            auto reset_cmd = modbus_controller::ModbusCommandItem::create_write_single_command(
-                controller, 
-                10112, // Address
-                1      // Value to write
-            );
-            controller->queue_command(reset_cmd);
+        - modbus_controller.write_register:
+            modbus_controller_id: must_inverter_super_slow
+            address: 10112
+            value: [ 1 ]
 
   - platform: jk_bms_ble
     retrieve_settings:
