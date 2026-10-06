@@ -381,7 +381,8 @@ switch:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    name: "Inverter Reset Accumulated Values"
+    id: inverter_Reset_Accumulated_Values
+    name: "Inverter switch: reset accumulated values"
     register_type: holding
     address: 20213
 
@@ -395,46 +396,46 @@ switch:
       name: "BMS discharging"
       icon: "mdi:current-dc" # Core DC power draw path
     balancer:
-      id: "balancer"
+      id: "bms_balancer"
       name: "BMS balancer"
       icon: "mdi:scale-balance"
     emergency:
-      id: "emergency"
+      id: "bms_emergency"
       name: "BMS emergency"
       icon: "mdi:car-emergency"
     heating:
-      id: "heating"
+      id: "bms_heating"
       name: "BMS heating"
       icon: "mdi:heating-coil"
     disable_temperature_sensors:
-      id: "disable_temperature_sensors"
+      id: "bms_disable_temperature_sensors"
       name: "BMS disable temperature sensors"
       icon: "mdi:thermometer-off"
     display_always_on:
-      id: "display_always_on"
+      id: "bms_display_always_on"
       name: "BMS display always on"
       icon: "mdi:screencast"
     smart_sleep:
-      id: "smart_sleep"
+      id: "bms_smart_sleep"
       name: "BMS smart sleep"
       icon: "mdi:sleep"
     disable_pcl_module:
-      id: "disable_pcl_module"
+      id: "bms_disable_pcl_module"
       name: "BMS disable pcl module"
     timed_stored_data:
-      id: "timed_stored_data"
+      id: "bms_timed_stored_data"
       name: "BMS timed stored data"
     charging_float_mode:
-      id: "charging_float_mode"
+      id: "bms_charging_float_mode"
       name: "BMS charging float mode"
     emergency_button_trigger:
-      id: "emergency_button_trigger"
+      id: "bms_emergency_button_trigger"
       name: "BMS emergency button trigger"
     dry_contact_alarm_intermittent:
-      id: "dry_contact_alarm_intermittent"
+      id: "bms_dry_contact_alarm_intermittent"
       name: "BMS dry contact alarm intermittent"
     discharge_overcurrent_protection_2:
-      id: "discharge_overcurrent_protection_2"
+      id: "bms_discharge_overcurrent_protection_2"
       name: "BMS discharge overcurrent protection 2"
 
   - platform: ble_client
@@ -448,15 +449,6 @@ binary_sensor:
     balancing:
       id: "balancing"
       name: "BMS balancing"
-    charging:
-      id: "charging"
-      name: "BMS charging"
-    discharging:
-      id: "discharging"
-      name: "BMS discharging"
-    heating:
-      id: "heating"
-      name: "BMS heating"
     online_status:
       id: "online_status"
       name: "BMS online status"
@@ -467,21 +459,21 @@ binary_sensor:
       id: "dry_contact_2"
       name: "BMS dry contact 2"
 
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 15211
-    register_type: holding
-    name: "Inverter Relay Status Battery"
-    icon: mdi:electric-switch
-    device_class: opening
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 15212
-    register_type: holding
-    name: "Inverter Relay Status PV"
-    icon: mdi:electric-switch
-    device_class: opening
+#  - platform: modbus_controller
+#    modbus_controller_id: must_inverter_slow
+#    address: 15211
+#    register_type: holding
+#    name: "Inverter Relay Status Battery"
+#    icon: mdi:electric-switch
+#    device_class: opening
+#
+#  - platform: modbus_controller
+#    modbus_controller_id: must_inverter_slow
+#    address: 15212
+#    register_type: holding
+#    name: "Inverter Relay Status PV"
+#    icon: mdi:electric-switch
+#    device_class: opening
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -519,7 +511,7 @@ binary_sensor:
     modbus_controller_id: must_inverter_slow
     address: 25241
     register_type: holding
-    name: "Inverter Relay Status DC"
+    name: "Inverter Relay Status Battery/DC"
     icon: mdi:electric-switch
     device_class: opening
 
@@ -590,14 +582,6 @@ sensor:
       } else {
         return 0.0;
       }
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    id: inverter_arrows_raw
-    address: 25279
-    register_type: holding
-    value_type: U_WORD
-    accuracy_decimals: 0
-    # internal: true  # Uncomment this line if you want to hide the raw number from Home Assistant
 
   #Inverter Control Message
   - platform: modbus_controller
@@ -616,13 +600,59 @@ sensor:
       - throttle: 200s
 
   # Inverter BMS section if connected
-    # Block 1xx (External BMS)
-    # 109: ["BMS_Battery_Voltage", "BMS Battery Voltage", 0.1 , "V"],
-    # 110: ["BMS_Battery_Current", "BMS Battery Current", 0.1 , "A"],
-    # 111: ["BMS_Battery_Temperature", "BMS Battery Temperature", 1 , "C"],
-    # 112: ["BMS_Battery_Errors", "BMS Battery Error", 1 , ""],
-    # 113: ["BMS_Battery_SOC", "BMS Battery SOC", 1 , "%"],
-    # 114: ["BMS_Battery_SOH", "BMS Battery SOH", 1 , "%"]
+  # Block 1xx (External BMS)
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 109
+    register_type: holding
+    name: "Inverter BMS Battery Voltage #1"
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 2
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter
+    address: 110
+    register_type: holding
+    name: "Inverter BMS Battery Current #1"
+    unit_of_measurement: "A"
+    device_class: current
+    accuracy_decimals: 1
+    filters:
+      multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 111
+    register_type: holding
+    name: "Inverter BMS Battery Temperature #1"
+    unit_of_measurement: "C"
+    device_class: temperature
+    accuracy_decimals: 1
+    filters:
+      - throttle: 30s
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 112
+    register_type: holding
+    name: "Inverter BMS Battery Error #1"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 113
+    register_type: holding
+    name: "Inverter BMS Battery SOC #1"
+    unit_of_measurement: "%"
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 114
+    register_type: holding
+    name: "Inverter BMS Battery SOH #1"
+    unit_of_measurement: "%"
 
   # Inverter Display Message
   - platform: modbus_controller
@@ -733,13 +763,39 @@ sensor:
     address: 15213
     register_type: holding
     name: "Inverter PV Charger Error Messages Count"
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     address: 15214
     register_type: holding
     name: "Inverter PV Charger Warning Messages Count"
-    # 15215: ["BattVolGrade", "BattVolGrade", 1, "V"],
-    # 15216: ["RatedCurrent", "Rated Current", 0.1, "A"],
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 15215
+    register_type: holding
+    value_type: S_WORD
+    name: "Inverter Grade Battery Voltage #1"
+    unit_of_measurement: "V"
+    device_class: voltage
+    icon: mdi:current-dc
+    reuse_previous_range: false
+    filters:
+      - throttle: 200s
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 15216
+    register_type: holding
+    value_type: S_WORD
+    name: "Inverter Rated Current #1"
+    unit_of_measurement: "A"
+    device_class: current
+    icon: mdi:current-dc
+    reuse_previous_range: false
+    filters:
+        multiply: 0.1
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     address: 15217
@@ -1201,7 +1257,6 @@ sensor:
     filters:
       - throttle: 20s
 
-
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25273
@@ -1212,6 +1267,7 @@ sensor:
     device_class: power
     accuracy_decimals: 0
     icon: mdi:flash
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25274
@@ -1222,6 +1278,7 @@ sensor:
     device_class: current
     accuracy_decimals: 1
     icon: mdi:current-dc
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     address: 25275
@@ -1234,6 +1291,14 @@ sensor:
     reuse_previous_range: false
     filters:
       - throttle: 200s
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    id: inverter_arrows_raw
+    address: 25279
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1989,6 +2054,16 @@ select:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
+    address: 20112
+    id: inverter_solar_use
+    name: "Inverter Solar Use #1"
+    icon: mdi:numeric
+    optionsmap:
+      "LBU (Load-Battery-Utility)": 0
+      "BLU (Battery-Load-Utility)": 1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
     id: charger_source_priority
     name: "Inverter Charger Source Priority"
     icon: mdi:numeric
@@ -2058,6 +2133,17 @@ number:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
+    id: batt_max_dischg_current
+    name: "Inverter Battery Max Discharging Current #1"
+    unit_of_measurement: "A"
+    icon: mdi:battery-arrow-down-outline
+    device_class: current
+    address: 20113
+    value_type: U_WORD
+    multiply: 10
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
     id: batt_stop_dischg
     name: "Inverter Battery Stop Discharging Voltage"
     unit_of_measurement: "V"
@@ -2077,12 +2163,26 @@ number:
     unit_of_measurement: "V"
     device_class: voltage
     icon: mdi:battery-arrow-up
-    min_value: 48.0
-    max_value: 58.0
     address: 20119
     value_type: U_WORD
-    multiply: 10
+    min_value: 48.0
+    max_value: 58.0
     step: 0.1
+    multiply: 10
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: grid_max_chrg_current
+    name: "Inverter Grid Max Charging Current #1"
+    unit_of_measurement: "A"
+    icon: mdi:current-dc
+    device_class: current
+    address: 20125
+    value_type: U_WORD
+    multiply: 10
+    min_value: 1.0
+    max_value: 100.0
+    step: 1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -2108,13 +2208,13 @@ number:
     address: 20128
     value_type: U_WORD
     multiply: 10
-    min_value: 55
-    max_value: 60
+    min_value: 55.0
+    max_value: 60.0
     step: 0.1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
-    name: "Inverter Combined Charger Current"
+    name: "Inverter Grid/PV Charger Current"
     unit_of_measurement: "A"
     id: inverter_charger_current
     icon: mdi:current-dc
