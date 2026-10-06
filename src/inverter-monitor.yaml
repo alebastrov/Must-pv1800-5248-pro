@@ -620,26 +620,6 @@ sensor:
   # Inverter Display Message
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    address: 10103
-    register_type: holding
-    name: "Inverter Charge Floating Voltage"
-    unit_of_measurement: "V"
-    device_class: voltage
-    accuracy_decimals: 1
-    filters:
-      multiply: 0.1
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 10104
-    register_type: holding
-    name: "Inverter Charge Absorption Voltage"
-    unit_of_measurement: "V"
-    device_class: voltage
-    accuracy_decimals: 1
-    filters:
-      multiply: 0.1
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
     address: 10105
     register_type: holding
     name: "Inverter Active Load Power"
