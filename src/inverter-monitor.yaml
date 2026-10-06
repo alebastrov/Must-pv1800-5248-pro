@@ -1,5 +1,4 @@
-# Board: NodeMCU-32S (NodeMCU)
-# Definition: definitions/boards/nodemcu-32s/manifest.yaml
+# Board: NodeMCU-32S (NodeMCU) Definition: definitions/boards/nodemcu-32s/manifest.yaml
 # also see https://github.com/MarkNjunge/must-inverter-monitor/blob/master/main.py
 # https://github.com/softwarecrash/Solar2MQTT/wiki/Wiring-Diagram
 substitutions:
@@ -221,6 +220,21 @@ globals:
     initial_value: 'false'
 
 button:
+  - platform: template
+    name: "Inverter switch: Reset accumulated values"
+    id: inverter_ResetAccumValues
+    icon: mdi:refresh
+    on_press:
+      then:
+        - lambda: |-
+            auto *controller = id(must_inverter_super_slow);
+            auto reset_cmd = modbus_controller::ModbusCommandItem::create_write_single_command(
+                controller, 
+                10112, // Address
+                1      // Value to write
+            );
+            controller->queue_command(reset_cmd);
+
   - platform: jk_bms_ble
     retrieve_settings:
       id: "bms_retrieve_settings"
@@ -379,12 +393,12 @@ switch:
     bitmask: 0x0080
     icon: "mdi:database-lock"
 
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    id: inverter_Reset_Accumulated_Values
-    name: "Inverter switch: reset accumulated values"
-    register_type: holding
-    address: 20213
+#  - platform: modbus_controller
+#    modbus_controller_id: must_inverter_super_slow
+#    id: inverter_Reset_Accumulated_Values
+#    name: "Inverter switch: reset accumulated values"
+#    register_type: holding
+#    address: 20213
 
   - platform: jk_bms_ble
     charging:
@@ -628,7 +642,7 @@ sensor:
     address: 111
     register_type: holding
     name: "Inverter (Read from BMS) Battery Temperature"
-    unit_of_measurement: "C"
+    unit_of_measurement: "°C"
     device_class: temperature
     accuracy_decimals: 1
     filters:
@@ -665,30 +679,6 @@ sensor:
     accuracy_decimals: 0
 
   # Block 15xxx (MPPT/Charger)
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 15201
-    name: "Inverter PV Charger work state"
-    id: pv_charger_work_state
-    internal: true
-    register_type: holding
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 15202
-    name: "Inverter PV Charger MPPT state"
-    internal: true
-    id: pv_charger_mppt_state
-    register_type: holding
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 15203
-    name: "Inverter PV Charger Charging state"
-    id: pv_charger_charging_state
-    internal: true
-    register_type: holding
-
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15205
@@ -757,18 +747,6 @@ sensor:
     device_class: temperature
     accuracy_decimals: 1
     icon: mdi:temperature-celsius
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    address: 15213
-    register_type: holding
-    name: "Inverter PV Charger Error Messages Count"
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    address: 15214
-    register_type: holding
-    name: "Inverter PV Charger Warning Messages Count"
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1766,6 +1744,119 @@ sensor:
       - multiply: 0.001
 
 text_sensor:
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 15201
+    name: "Inverter PV Charger work state"
+    id: pv_charger_work_state
+    register_type: holding
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      switch(value) {
+        case 0: return {"Off / Initializing"};
+        case 1: return {"Self-test / Standby"};
+        case 2: return {"On / PV Charging"};
+        case 3: return {"Off / Charging Complete"};
+        case 4: return {"Fault"};
+        default: return {"Unknown State"};
+      }
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    address: 15202
+    name: "Inverter PV Charger MPPT state"
+    internal: true
+    id: pv_charger_mppt_state
+    register_type: holding
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      switch(value) {
+        case 0: return {"Stop / Idle"};
+        case 1: return {"MPPT"};
+        case 2: return {"Current Limiting"};
+        default: return {"Unknown State"};
+      }
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: pv_charger_charging_state
+    name: "Inverter PV Charger Charging state"
+    register_type: holding
+    icon: mdi:battery-charging
+    address: 15203
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      switch(value) {
+        case 0: return {"Stop / Idle"};
+        case 1: return {"Absorption"};
+        case 2: return {"Floating"};
+        case 3: return {"Equalization"};
+        default: return {"Unknown State"};
+      }
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 15213
+    register_type: holding
+    name: "Inverter PV Charger error message"
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      std::vector<std::string> faults;
+      
+      if (value & (1 << 0))  faults.push_back("Hardware Protection");
+      if (value & (1 << 1))  faults.push_back("Over Current");
+      if (value & (1 << 2))  faults.push_back("Current Sensor Error");
+      if (value & (1 << 3))  faults.push_back("Over Temperature");
+      if (value & (1 << 4))  faults.push_back("PV Voltage Too High");
+      if (value & (1 << 5))  faults.push_back("PV Voltage Too Low");
+      if (value & (1 << 6))  faults.push_back("Battery Voltage Too High");
+      if (value & (1 << 7))  faults.push_back("Battery Voltage Too Low");
+      if (value & (1 << 8))  faults.push_back("Current Uncontrollable");
+      if (value & (1 << 9))  faults.push_back("Parameter Error");
+      // Bits 10 to 15 are reserved
+      
+      if (faults.empty()) {
+        return {"Normal"};
+      }
+      
+      // Join all detected faults into a comma-separated list
+      std::string output = "";
+      for (size_t i = 0; i < faults.size(); ++i) {
+        if (i > 0) output += ", ";
+        output += faults[i];
+      }
+      return {output};
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 15214
+    register_type: holding
+    name: "Inverter PV Charger warning message"
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      std::vector<std::string> faults;
+      
+      if (value & (1 << 0))  faults.push_back("Fan Error");
+      // Bits 1 to 15 are reserved
+      
+      if (faults.empty()) {
+        return {"Normal"};
+      }
+      
+      // Join all detected faults into a comma-separated list
+      std::string output = "";
+      for (size_t i = 0; i < faults.size(); ++i) {
+        if (i > 0) output += ", ";
+        output += faults[i];
+      }
+      return {output};
+
   # 2. Extract Bits 6 & 7 for Battery Use
   - platform: template
     name: "Inverter Arrow: Battery Use"
@@ -1853,43 +1944,169 @@ text_sensor:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     bitmask: 0
-    register_type: holding
     address: 25261
-    raw_encode: ANSI
     name: "Inverter error message 1"
-    icon: mdi:math-log
+    raw_encode: HEXBYTES
+    register_type: holding
+    icon: mdi:alert-outline
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      std::vector<std::string> faults;
+      
+      if (value & (1 << 0))  faults.push_back("Fan Locked");
+      if (value & (1 << 1))  faults.push_back("Transformer Over Temperature");
+      if (value & (1 << 2))  faults.push_back("Battery Voltage Too High");
+      if (value & (1 << 3))  faults.push_back("Battery Voltage Too Low");
+      if (value & (1 << 4))  faults.push_back("Output Short Circuit");
+      if (value & (1 << 5))  faults.push_back("Output Voltage Too High");
+      if (value & (1 << 6))  faults.push_back("Overload Timeout");
+      if (value & (1 << 7))  faults.push_back("Bus Voltage Too High");
+      if (value & (1 << 8))  faults.push_back("Bus Soft Start Failed");
+      if (value & (1 << 9))  faults.push_back("Main Relay Failed");
+      if (value & (1 << 10)) faults.push_back("Output Voltage Sensor Error");
+      if (value & (1 << 11)) faults.push_back("Grid Voltage Sensor Error");
+      if (value & (1 << 12)) faults.push_back("Output Current Sensor Error");
+      if (value & (1 << 13)) faults.push_back("Grid Current Sensor Error");
+      if (value & (1 << 14)) faults.push_back("Load Current Sensor Error");
+      if (value & (1 << 15)) faults.push_back("Grid Current Too High");
+      
+      if (faults.empty()) {
+        return {"Normal"};
+      }
+      
+      // Join all detected faults with a comma
+      std::string output = "";
+      for (size_t i = 0; i < faults.size(); ++i) {
+        if (i > 0) output += ", ";
+        output += faults[i];
+      }
+      return {output};
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25262
-    raw_encode: ANSI
-    register_type: holding
     name: "Inverter error message 2"
-    icon: mdi:math-log
+    register_type: holding
+    icon: mdi:alert-outline
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      std::vector<std::string> faults;
+      
+      if (value & (1 << 0))  faults.push_back("Radiator Over Temperature");
+      if (value & (1 << 1))  faults.push_back("Solar Charger Battery Voltage Class Error");
+      if (value & (1 << 2))  faults.push_back("Solar Charger Current Sensor Error");
+      if (value & (1 << 3))  faults.push_back("Solar Charger Current Uncontrollable");
+      if (value & (1 << 4))  faults.push_back("Grid Voltage Too Low");
+      if (value & (1 << 5))  faults.push_back("Grid Voltage Too High");
+      if (value & (1 << 6))  faults.push_back("Grid Under Frequency");
+      if (value & (1 << 7))  faults.push_back("Grid Over Frequency");
+      if (value & (1 << 8))  faults.push_back("Over Current Protection Error");
+      if (value & (1 << 9))  faults.push_back("Bus Voltage Too Low");
+      if (value & (1 << 10)) faults.push_back("Soft Start Failed");
+      if (value & (1 << 11)) faults.push_back("Over DC Voltage in AC Output");
+      if (value & (1 << 12)) faults.push_back("Battery Connection Open");
+      if (value & (1 << 13)) faults.push_back("Control Current Sensor Error");
+      if (value & (1 << 14)) faults.push_back("Output Voltage Too Low");
+      // Bit 15 is reserved
+      
+      if (faults.empty()) {
+        return {"Normal"};
+      }
+      
+      // Join all detected secondary faults/warnings with a comma
+      std::string output = "";
+      for (size_t i = 0; i < faults.size(); ++i) {
+        if (i > 0) output += ", ";
+        output += faults[i];
+      }
+      return {output};
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25263
-    raw_encode: ANSI
     register_type: holding
     name: "Inverter error message 3"
     icon: mdi:math-log
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      std::vector<std::string> faults;
+
+      // Bits 0 to 15 are reserved
+
+      if (faults.empty()) {
+        return {"Normal"};
+      }
+
+      // Join all active reserved bits with a comma
+      std::string output = "";
+      for (size_t i = 0; i < faults.size(); ++i) {
+        if (i > 0) output += ", ";
+        output += faults[i];
+      }
+      return {output};
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 25265
     register_type: holding
-    raw_encode: ANSI
     name: "Inverter warning message 1"
-    icon: mdi:math-log
+    icon: mdi:shield-alert-outline
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      std::vector<std::string> faults;
+      
+      if (value & (1 << 0))  faults.push_back("Fan 1 Locked (On)");
+      if (value & (1 << 1))  faults.push_back("Fan 2 Locked (On)");
+      if (value & (1 << 2))  faults.push_back("Battery Over-charged");
+      if (value & (1 << 3))  faults.push_back("Low Battery");
+      if (value & (1 << 4))  faults.push_back("Overload");
+      if (value & (1 << 5))  faults.push_back("Output Power Derating");
+      if (value & (1 << 6))  faults.push_back("Solar Charger Stop (Low Battery)");
+      if (value & (1 << 7))  faults.push_back("Solar Charger Stop (High PV)");
+      if (value & (1 << 8))  faults.push_back("Solar Charger Stop (Overload)");
+      if (value & (1 << 9))  faults.push_back("Solar Charger Over Temperature");
+      if (value & (1 << 10)) faults.push_back("PV Charger Communication Error");
+      // Bits 11 to 15 are reserved
+      
+      if (faults.empty()) {
+        return {"Normal"};
+      }
+      
+      // Join all detected faults into a comma-separated list
+      std::string output = "";
+      for (size_t i = 0; i < faults.size(); ++i) {
+        if (i > 0) output += ", ";
+        output += faults[i];
+      }
+      return {output};
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     register_type: holding
     address: 25266
-    raw_encode: ANSI
     name: "Inverter warning message 2"
-    icon: mdi:math-log
+    icon: mdi:shield-alert-outline
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = (data[0] << 8) | data[1];
+      std::vector<std::string> faults;
+      
+      // Bits 0 to 15 are reserved
+      
+      if (faults.empty()) {
+        return {"Normal"};
+      }
+      
+      // Join all active reserved bits with a comma
+      std::string output = "";
+      for (size_t i = 0; i < faults.size(); ++i) {
+        if (i > 0) output += ", ";
+        output += faults[i];
+      }
+      return {output};
 
   - platform: template
     name: "Inverter Work Mode"
@@ -1907,51 +2124,6 @@ text_sensor:
         case 5:  return {"Stop / Fault"};
         case 6:  return {"Grid Charging"};
         default: return "Unknown inverter work status value (" + to_string(raw_state) + ")";
-      }
-
-  - platform: template
-    name: "Inverter PV Charger MPPT Mode"
-    id: inverter_charger_mppt_mode
-    icon: "mdi:solar-power"
-    update_interval: 10s
-    lambda: |-
-      int raw_state = id(pv_charger_mppt_state).state;
-      switch(raw_state) {
-        case 0:  return {"Off / Idle"};
-        case 1:  return {"Active"};
-        case 2:  return {"Current Limiting"};
-        default: return "Unknown PV Charger MPPT state value (" + to_string(raw_state) + ")";
-      }
-
-  - platform: template
-    name: "Inverter PV Charger Charging Mode"
-    id: inverter_charger_charging_mode
-    icon: "mdi:solar-power"
-    update_interval: 10s
-    lambda: |-
-      int raw_state = id(pv_charger_charging_state).state;
-      switch(raw_state) {
-        case 0:  return {"Off / Idle"};
-        case 1:  return {"Charge: Absorption"};
-        case 2:  return {"Charge: Floating"};
-        case 3:  return {"Charge: Equalization"};
-        default: return "Unknown PV Charger Charging state value (" + to_string(raw_state) + ")";
-      }
-
-  - platform: template
-    name: "Inverter PV Charger Work Mode"
-    id: pv_charger_work_mode
-    icon: "mdi:solar-power-variant"
-    update_interval: 10s
-    lambda: |-
-      int raw_state = id(pv_charger_work_state).state;
-      switch(raw_state) {
-        case 0:  return {"Off / Initializing"};
-        case 1:  return {"Self-test / Standby"};
-        case 2:  return {"On / PV Charging"};
-        case 3:  return {"Off / Charging Complete"};
-        case 4:  return {"Fault"};
-        default: return "Unknown PV Charger work state value (" + to_string(raw_state) + ")";
       }
 
   - platform: jk_bms_ble
@@ -2009,14 +2181,12 @@ select:
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     id: charger_state
-    name: "Inverter Charger State"
+    name: "Inverter Battery Equalization"
     icon: mdi:numeric
-    address: 15203
+    address: 10118
     optionsmap:
-      "Stop / Idle": 0
-      "Absorption": 1
-      "Floating": 2
-      "Equalization": 3
+      "Disabled": 0
+      "Enabled": 1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -2073,6 +2243,21 @@ select:
       "SNU (Solar and utility)": 2
       "OSO (Solar only)": 3
 
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: batt_type
+    name: "Inverter Battery Type"
+    icon: mdi:battery
+    address: 10110
+    optionsmap:
+      "None": 0
+      "User defined": 1
+      "Lithium": 2
+      "Sealed Calcium/Lead-Acid (SLA / VRLA)": 3
+      "AGM (Absorbed Glass Mat)": 4
+      "GEL": 5
+      "Flooded": 6
+
   - platform: jk_bms_ble
     multiplexed_port_mode:
       name: "BMS multiplexed port mode"
@@ -2112,8 +2297,8 @@ number:
     device_class: voltage
     address: 10103
     value_type: U_WORD
-    min_value: 53.0
-    max_value: 56.0
+    min_value: 53.0   #48
+    max_value: 56.0   #58.4
     step: 0.1
     multiply: 10
 
@@ -2126,21 +2311,66 @@ number:
     device_class: voltage
     address: 10104
     value_type: U_WORD
-    min_value: 54.0
-    max_value: 56.0
+    min_value: 54.0   #48.0
+    max_value: 56.0   #58.4
     step: 0.1
+    multiply: 10
+
+#unknown for pv1800
+#  - platform: modbus_controller
+#    modbus_controller_id: must_inverter_super_slow
+#    id: batt_max_dischg_current
+#    name: "Inverter Battery Max Discharging Current #1"
+#    unit_of_measurement: "A"
+#    icon: mdi:battery-arrow-down-outline
+#    device_class: current
+#    address: 20113
+#    value_type: U_WORD
+#    multiply: 10
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: batt_equalization_voltage
+    name: "Inverter Battery Equalization Voltage"
+    unit_of_measurement: "V"
+    icon: mdi:current-dc
+    device_class: voltage
+    address: 10119
+    value_type: U_WORD
     multiply: 10
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    id: batt_max_dischg_current
-    name: "Inverter Battery Max Discharging Current #1"
-    unit_of_measurement: "A"
-    icon: mdi:battery-arrow-down-outline
-    device_class: current
-    address: 20113
+    id: batt_equalization_time
+    name: "Inverter Battery Equalization Time (min)"
+    icon: mdi:time
+    address: 10121
     value_type: U_WORD
-    multiply: 10
+    min_value: 5
+    max_value: 900
+    step: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: batt_equalization_timeout
+    name: "Inverter Battery Equalization Timeout (min)"
+    icon: mdi:time
+    address: 10122
+    value_type: U_WORD
+    min_value: 5
+    max_value: 900
+    step: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: batt_equalization_interval
+    name: "Inverter Battery Equalization Interval (days)"
+    icon: mdi:time
+    address: 10123
+    value_type: U_WORD
+    min_value: 0
+    max_value: 90
+    step: 1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
