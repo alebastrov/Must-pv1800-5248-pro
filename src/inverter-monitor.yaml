@@ -66,7 +66,7 @@ logger:
   tx_buffer_size: 256
   logs:
     modbus: WARN
-    modbus_controller: INFO
+    modbus_controller: WARN
 
 mdns:
   disabled: true       # Disables network name caching, saving heap RAM
