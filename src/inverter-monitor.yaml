@@ -61,11 +61,11 @@ wifi:
     password: "12345678"
 
 logger:
-  level: INFO
+  level: WARN
   hardware_uart: UART0
   tx_buffer_size: 256
   logs:
-    modbus: INFO
+    modbus: WARN
     modbus_controller: INFO
 
 mdns:
@@ -223,27 +223,27 @@ globals:
 button:
   - platform: jk_bms_ble
     retrieve_settings:
-      id: "retrieve_settings"
+      id: "bms_retrieve_settings"
       name: "BMS retrieve settings"
       icon: "mdi:cog-transfer"
     retrieve_device_info:
-      id: "retrieve_device_info"
+      id: "bms_retrieve_device_info"
       name: "BMS retrieve device info"
       icon: "mdi:information-outline"
     retrieve_logbook:
-      id: "retrieve_logbook"
+      id: "bms_retrieve_logbook"
       name: "BMS retrieve logbook"
       icon: "mdi:book-open-outline"
     shutdown:
-      id: "shutdown"
+      id: "bms_shutdown"
       name: "BMS shutdown"
       icon: "mdi:power"
     restart:
-      id: "restart"
+      id: "bms_restart"
       name: "BMS restart"
       icon: "mdi:restart"
     factory_reset:
-      id: "factory_reset"
+      id: "bms_factory_reset"
       name: "BMS factory reset"
       icon: "mdi:factory"
 
@@ -396,46 +396,46 @@ switch:
       name: "BMS discharging"
       icon: "mdi:current-dc" # Core DC power draw path
     balancer:
-      id: "bms_balancer"
+      id: "balancer"
       name: "BMS balancer"
       icon: "mdi:scale-balance"
     emergency:
-      id: "bms_emergency"
+      id: "emergency"
       name: "BMS emergency"
       icon: "mdi:car-emergency"
     heating:
-      id: "bms_heating"
+      id: "heating"
       name: "BMS heating"
       icon: "mdi:heating-coil"
     disable_temperature_sensors:
-      id: "bms_disable_temperature_sensors"
+      id: "disable_temperature_sensors"
       name: "BMS disable temperature sensors"
       icon: "mdi:thermometer-off"
     display_always_on:
-      id: "bms_display_always_on"
+      id: "display_always_on"
       name: "BMS display always on"
       icon: "mdi:screencast"
     smart_sleep:
-      id: "bms_smart_sleep"
+      id: "smart_sleep"
       name: "BMS smart sleep"
       icon: "mdi:sleep"
     disable_pcl_module:
-      id: "bms_disable_pcl_module"
+      id: "disable_pcl_module"
       name: "BMS disable pcl module"
     timed_stored_data:
-      id: "bms_timed_stored_data"
+      id: "timed_stored_data"
       name: "BMS timed stored data"
     charging_float_mode:
-      id: "bms_charging_float_mode"
+      id: "charging_float_mode"
       name: "BMS charging float mode"
     emergency_button_trigger:
-      id: "bms_emergency_button_trigger"
+      id: "emergency_button_trigger"
       name: "BMS emergency button trigger"
     dry_contact_alarm_intermittent:
-      id: "bms_dry_contact_alarm_intermittent"
+      id: "dry_contact_alarm_intermittent"
       name: "BMS dry contact alarm intermittent"
     discharge_overcurrent_protection_2:
-      id: "bms_discharge_overcurrent_protection_2"
+      id: "discharge_overcurrent_protection_2"
       name: "BMS discharge overcurrent protection 2"
 
   - platform: ble_client
@@ -511,7 +511,7 @@ binary_sensor:
     modbus_controller_id: must_inverter_slow
     address: 25241
     register_type: holding
-    name: "Inverter Relay Status Battery/DC"
+    name: "Inverter Relay Status Battery"
     icon: mdi:electric-switch
     device_class: opening
 
@@ -605,7 +605,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 109
     register_type: holding
-    name: "Inverter BMS Battery Voltage #1"
+    name: "Inverter (Read from BMS) Battery Voltage"
     unit_of_measurement: "V"
     device_class: voltage
     accuracy_decimals: 2
@@ -616,7 +616,7 @@ sensor:
     modbus_controller_id: must_inverter
     address: 110
     register_type: holding
-    name: "Inverter BMS Battery Current #1"
+    name: "Inverter (Read from BMS) Battery Current"
     unit_of_measurement: "A"
     device_class: current
     accuracy_decimals: 1
@@ -627,7 +627,7 @@ sensor:
     modbus_controller_id: must_inverter_slow
     address: 111
     register_type: holding
-    name: "Inverter BMS Battery Temperature #1"
+    name: "Inverter (Read from BMS) Battery Temperature"
     unit_of_measurement: "C"
     device_class: temperature
     accuracy_decimals: 1
@@ -638,20 +638,20 @@ sensor:
     modbus_controller_id: must_inverter_slow
     address: 112
     register_type: holding
-    name: "Inverter BMS Battery Error #1"
+    name: "Inverter (Read from BMS) Battery Error"
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 113
     register_type: holding
-    name: "Inverter BMS Battery SOC #1"
+    name: "Inverter (Read from BMS) Battery SOC"
     unit_of_measurement: "%"
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 114
     register_type: holding
-    name: "Inverter BMS Battery SOH #1"
+    name: "Inverter (Read from BMS) Battery SOH"
     unit_of_measurement: "%"
 
   # Inverter Display Message
@@ -772,23 +772,10 @@ sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    address: 15215
-    register_type: holding
-    value_type: S_WORD
-    name: "Inverter Grade Battery Voltage #1"
-    unit_of_measurement: "V"
-    device_class: voltage
-    icon: mdi:current-dc
-    reuse_previous_range: false
-    filters:
-      - throttle: 200s
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
     address: 15216
     register_type: holding
     value_type: S_WORD
-    name: "Inverter Rated Current #1"
+    name: "Inverter Grade Rated Current"
     unit_of_measurement: "A"
     device_class: current
     icon: mdi:current-dc
@@ -1291,6 +1278,19 @@ sensor:
     reuse_previous_range: false
     filters:
       - throttle: 200s
+# duplicate
+#  - platform: modbus_controller
+#    modbus_controller_id: must_inverter_super_slow
+#    address: 15215
+#    register_type: holding
+#    value_type: S_WORD
+#    name: "Inverter Grade Battery Voltage"
+#    unit_of_measurement: "V"
+#    device_class: voltage
+#    icon: mdi:current-dc
+#    reuse_previous_range: false
+#    filters:
+#      - throttle: 200s
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -2056,7 +2056,7 @@ select:
     modbus_controller_id: must_inverter_super_slow
     address: 20112
     id: inverter_solar_use
-    name: "Inverter Solar Use #1"
+    name: "Inverter Solar Energy Use"
     icon: mdi:numeric
     optionsmap:
       "LBU (Load-Battery-Utility)": 0
@@ -2172,20 +2172,6 @@ number:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    id: grid_max_chrg_current
-    name: "Inverter Grid Max Charging Current #1"
-    unit_of_measurement: "A"
-    icon: mdi:current-dc
-    device_class: current
-    address: 20125
-    value_type: U_WORD
-    multiply: 10
-    min_value: 1.0
-    max_value: 100.0
-    step: 1
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
     id: batt_low_voltage
     name: "Inverter Battery Low Voltage"
     unit_of_measurement: "V"
@@ -2214,7 +2200,7 @@ number:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter
-    name: "Inverter Grid/PV Charger Current"
+    name: "Inverter Grid & PV Charger Current"
     unit_of_measurement: "A"
     id: inverter_charger_current
     icon: mdi:current-dc
@@ -2225,6 +2211,21 @@ number:
     min_value: 1
     max_value: 120
     step: 1
+
+# duplicate
+#  - platform: modbus_controller
+#    modbus_controller_id: must_inverter_super_slow
+#    id: grid_max_chrg_current
+#    name: "Inverter Grid Max Charging Current"
+#    unit_of_measurement: "A"
+#    icon: mdi:current-dc
+#    device_class: current
+#    address: 20125
+#    value_type: U_WORD
+#    multiply: 10
+#    min_value: 1.0
+#    max_value: 100.0
+#    step: 1
 
   - platform: jk_bms_ble
     jk_bms_ble_id: bms0
