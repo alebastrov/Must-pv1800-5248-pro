@@ -161,12 +161,12 @@ time:
           - lambda: |-
               id(battery_in_rest_period) = false;
               id(permanent_shutdown_active) = false;
-          - logger.log: "Global variables have been reset at 23:00:00"
+          - logger.log: "Global variables and daily meters have been reset at 23:00:00"
 
       # ==========================================
       # MONTHLY RESETS
       # ==========================================
-      # CHARGE MONTHLY: Runs at 23:00 on the LAST day of every month
+      # CHARGE/DISCHARGE MONTHLY: Runs at 23:00 on the LAST day of every month
       # (Clears out the old month right before the night charge window starts)
       - seconds: 0
         minutes: 0
@@ -179,23 +179,13 @@ time:
               t.increment_day();
               if (t.day_of_month == 1) {
                 id(bms_monthly_charge_meter).publish_state(0.0f);
+                id(bms_monthly_discharge_meter).publish_state(0.0f);
               }
-
-      # DISCHARGE MONTHLY: Runs at 07:00 on the 1st day of every month
-      # (Clears out the old month right before the morning discharge window starts)
-      - seconds: 0
-        minutes: 0
-        hours: 23
-        days_of_month: 1
-        then:
-          - sensor.template.publish:
-              id: bms_monthly_discharge_meter
-              state: 0.0
 
       # ==========================================
       # YEARLY RESETS
       # ==========================================
-      # CHARGE YEARLY: Runs at 23:00 on December 31st
+      # CHARGE/DISCHARGE YEARLY: Runs at 23:00 on December 31st
       - seconds: 0
         minutes: 0
         hours: 23
@@ -205,14 +195,6 @@ time:
           - sensor.template.publish:
               id: bms_yearly_charge_meter
               state: 0.0
-
-      # DISCHARGE YEARLY: Runs at 07:00 on January 1st
-      - seconds: 0
-        minutes: 0
-        hours: 23
-        days_of_month: 1
-        months: JAN
-        then:
           - sensor.template.publish:
               id: bms_yearly_discharge_meter
               state: 0.0
@@ -272,25 +254,23 @@ button:
     on_press:
       then:
         - lambda: |-
-            // 1. Проверяем, была ли вообще активна блокировка
             if (id(permanent_shutdown_active) || id(battery_in_rest_period)) {
-              
-              // 2. Сбрасываем защитные флаги в исходное состояние
+              // 1. blocking was fired 
+              // 2. reset flags
               id(permanent_shutdown_active) = false;
               id(battery_in_rest_period) = false;
 
-              // 3. Формируем и отправляем красивый отчет в Telegram и лог
+              // 3. report that even
               char msg_buffer[512];
               snprintf(msg_buffer, sizeof(msg_buffer), 
-                "🔄 *BMS Recovery:* Fault cleared manually via Home Assistant.\\nResuming normal charging operations.");
+                "🔄 *BMS Recovery:* Fault cleared manually.\\nResuming normal charging operations.");
               std::string token = "$TELEGRAM_BOT_TOKEN";
               log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
-              // 4. Мгновенно перезапускаем основной скрипт вычислений, 
-              // чтобы инвертор вернулся к целевому току зарядки пользователя
+              // 4. set charging current as it was before blocking
               id(evaluate_charging_safety).execute();
             } else {
-              // Если кнопка нажата просто так, когда аварии нет — пишем только в локальный лог
+              // accidentally clicked, ignore
               ESP_LOGI("safety", "Manual recovery pressed, but no active faults detected.");
             }
 
