@@ -230,10 +230,17 @@ button:
     icon: mdi:refresh
     on_press:
       then:
-        - modbus_controller.write_register:
-            modbus_controller_id: must_inverter_super_slow
-            address: 10112
-            value: [ 1 ]
+        - lambda: |-
+            // 1. Create the Modbus command payload (Value 1) using modbus_controller framework
+            std::vector<uint16_t> data = {1};
+            auto *command = new modbus_controller::ModbusCommandItem(
+                10112, // start address
+                1,     // number of registers
+                data,  // payload vector
+                modbus_controller::ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS
+            );
+            // Queue the command to your specific controller
+            id(must_inverter_super_slow).queue_command(command);
 
   - platform: jk_bms_ble
     retrieve_settings:
@@ -1745,7 +1752,7 @@ sensor:
 
 text_sensor:
   - platform: template
-    name: "Protection history (last 10)"
+    name: "Protection: history (last 10)"
     id: protection_history_sensor
     icon: "mdi:history"
 
@@ -2719,13 +2726,13 @@ script:
                     // add details
                     if (bad_cell_v >= max_allowed_cell_v) {
                       snprintf(reason_buffer, sizeof(reason_buffer), "BMS Max Cell #%d Voltage Limit (>= %.3f V)", bad_cell_num, max_allowed_cell_v);
-                      add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
+                      add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
                     } else if (total_batt_v > max_allowed_batt_v) {
                       snprintf(reason_buffer, sizeof(reason_buffer), "BMS Pack Battery Voltage Limit (>= %.2f V)", max_allowed_batt_v);
-                      add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
+                      add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
                     } else {
                       snprintf(reason_buffer, sizeof(reason_buffer), "BMS Cell Delta Threshold Exceeded (>= %.3f V)", trigger_v);
-                      add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
+                      add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
                     }
 
                     if (active_current < 2.0f) {
@@ -2741,7 +2748,7 @@ script:
                         "• *Bad Cell: #%d (%.3f V)*\\n\\n"
                         "Charging stopped completely until manual intervention.", 
                         reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
-                        add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
+                        add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
                       
                       std::string token = "$TELEGRAM_BOT_TOKEN";
                       log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
@@ -2765,7 +2772,7 @@ script:
                       "• Pack Voltage: %.2f V\\n"
                       "• *Highest Cell: #%d (%.3f V)*", 
                       reason, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
-                    add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
+                    add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
                 
                     std::string token = "$TELEGRAM_BOT_TOKEN";                    
                     log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
@@ -2789,6 +2796,6 @@ script:
       - delay: 15min
       - lambda: |-
           ESP_LOGI("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
-          add_to_history(id(homeassistant_time), id(protection_history_sensor), "(OK) Battery is under protection");
+          add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Battery is under protection");
           id(battery_in_rest_period) = false;
           id(evaluate_charging_safety).execute();
