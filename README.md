@@ -14,5 +14,16 @@ JK BMS is a BLE firmware to read data from the battery using bluetooth BLE conne
 
 inverter-monitor is 2-in-1 esp32 firmware which combines first one and second one in a single module
 
+## Built-in Battery Protection System
+This is a feature to control charging on-board in esphome device (without handling it on HomeAssistant itself).
+The feature has 3 setting
+
+- Protection: Max Battery Voltage Allowed (55.0 V)
+- Protection: Max Cell Voltage Allowed (3.45 V)
+- Protection: Max Delta Allowed (0.015 V)
+
+if inverter charges the battery all 3 rules are taken into account, if any of them fails then charging is being stopped for 15 minutes
+After timeout is passed the inverter will get the same charging current as it was before protection event.
+
 
 

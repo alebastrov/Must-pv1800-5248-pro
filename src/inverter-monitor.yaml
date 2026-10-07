@@ -230,8 +230,13 @@ button:
     icon: mdi:refresh
     on_press:
       then:
+        - switch.turn_on: inverter_reset_register_wire
+        - switch.turn_off: inverter_reset_register_wire
+        - component.update: must_inverter_super_slow
+
         - lambda: !lambda |-
-            std::string log_msg = "Inverter accumulated values reset (Slave ID: " + std::to_string(0x04) + ")";
+            uint8_t current_address = 0x04;
+            std::string log_msg = "Inverter Accumulated Values were reset (Slave ID: " + std::to_string(current_address) + ")";
             add_to_history(id(sntp_time), id(protection_history_sensor), log_msg);
 
   - platform: jk_bms_ble
@@ -277,6 +282,8 @@ button:
               char msg_buffer[512];
               snprintf(msg_buffer, sizeof(msg_buffer), 
                 "🔄 *BMS Recovery:* Fault cleared manually.\\nResuming normal charging operations.");
+              add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
+            
               std::string token = "$TELEGRAM_BOT_TOKEN";
               log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
@@ -320,6 +327,12 @@ button:
   #  Bit 6  LcdLightEnable          Keeps the LCD backlight permanently illuminated when enabled.
   #  Bit 7  RecordFaultForbid       Stops the inverter from saving or logging faults to its internal memory.
 switch:
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: inverter_reset_register_wire
+    register_type: holding
+    address: 20213 # or maybe 57092
+    internal: true
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     name: "Inverter switch: Overload auto-restart disabled"
@@ -2694,8 +2707,7 @@ script:
                 float cell_delta = id(delta_cell_voltage).state;
                 float trigger_v = id(input_delta_trigger_threshold).state;
                 float active_current = id(inverter_charger_current).state;
-
-                // Считываем точные данные из сенсоров: номер ячейки и её вольтаж
+              
                 int bad_cell_num = (int)id(max_voltage_cell).state;
                 float bad_cell_v = id(max_cell_voltage).state;
                 float max_allowed_cell_v = id(input_max_cell_voltage).state;
