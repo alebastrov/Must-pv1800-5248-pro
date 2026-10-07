@@ -23,6 +23,7 @@ esphome:
   friendly_name: inverter-monitor
   includes:
     - sender.h
+    - history.h
 
 esp32:
   variant: ESP32
@@ -218,6 +219,9 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  - id: protection_history_list
+    type: std::vector<std::string>
+    initial_value: '{}'
 
 button:
   - platform: template
@@ -1740,6 +1744,10 @@ sensor:
       - multiply: 0.001
 
 text_sensor:
+  - platform: template
+    name: "Protection history (last 10)"
+    id: protection_history_sensor
+    icon: "mdi:history"
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -2696,34 +2704,32 @@ script:
                 float max_allowed_batt_v = id(input_max_battery_voltage).state;
                 float total_batt_v = id(bms_battery_voltage).state;
 
-                // Выделяем безопасный буфер под текст сообщения (512 байт)
                 char msg_buffer[512];
 
-                // Проверяем все три условия перегрузки (High Delta OR Overvoltage Cell OR Overvoltage Pack)
+                // check if High Delta or Overvoltage Cell or Overvoltage Pack
                 bool trigger_intervention = (cell_delta >= trigger_v) || 
-                                            (bad_cell_v > max_allowed_cell_v) || 
-                                            (total_batt_v > 55.4f);
+                                            (bad_cell_v >= max_allowed_cell_v) || 
+                                            (total_batt_v >= max_allowed_batt_v);
 
                 // 1. CRITICAL OVER-PARAMETER INTERVENTION
                 if (trigger_intervention) {
                   if (!id(battery_in_rest_period)) {
-
-                    // Определяем причину срабатывания для более точного логирования
-                    const char* reason = "Cell Delta / Overvoltage Threshold Exceeded";
                     char reason_buffer[128];
 
-                    // Приоритетно определяем причину срабатывания с подстановкой вольтажа
+                    // add details
                     if (bad_cell_v >= max_allowed_cell_v) {
-                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Max Cell Voltage Limit (>= %.3f V)", max_allowed_cell_v);
+                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Max Cell #%d Voltage Limit (>= %.3f V)", bad_cell_num, max_allowed_cell_v);
+                      add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
                     } else if (total_batt_v > max_allowed_batt_v) {
-                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Pack Battery Voltage Limit (> %.2f V)", max_allowed_batt_v);
+                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Pack Battery Voltage Limit (>= %.2f V)", max_allowed_batt_v);
+                      add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
                     } else {
                       snprintf(reason_buffer, sizeof(reason_buffer), "BMS Cell Delta Threshold Exceeded (>= %.3f V)", trigger_v);
+                      add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
                     }
 
-                    // ВАРИАНТ А: Если ток уже меньше 2А -> Полное перманентное отключение
                     if (active_current < 2.0f) {
-                      
+                      // Charging current has already been lesser than 2A      
                       snprintf(msg_buffer, sizeof(msg_buffer), 
                         "🚨 *CRITICAL: PERMANENT SHUTDOWN*\\n"
                         "Battery is saturated (Current < 2A with High Cell/Delta/Pack Max).\\n"
@@ -2735,9 +2741,9 @@ script:
                         "• *Bad Cell: #%d (%.3f V)*\\n\\n"
                         "Charging stopped completely until manual intervention.", 
                         reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
+                        add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
                       
                       std::string token = "$TELEGRAM_BOT_TOKEN";
-                      // Логирует локально через кастомную функцию
                       log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
                       id(permanent_shutdown_active) = true;
@@ -2747,8 +2753,8 @@ script:
                       call.perform();
                       return;
                     }
-
-                    // ВАРИАНТ Б: Переход в стандартный 15-минутный режим динамического восстановления
+                    // Charging current is more than 2A, go to dynamic rest 15 min
+                    const char* reason = "Cell Delta / Overvoltage Threshold Exceeded";
                     snprintf(msg_buffer, sizeof(msg_buffer), 
                       "⚠️ *WARNING: DYNAMIC RECOVERY*\\n"
                       "Threshold breach detected. Dropping current for a 15m rest.\\n"
@@ -2759,9 +2765,9 @@ script:
                       "• Pack Voltage: %.2f V\\n"
                       "• *Highest Cell: #%d (%.3f V)*", 
                       reason, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
-                    std::string token = "$TELEGRAM_BOT_TOKEN";
-                    
-                    // Логирует локально через вашу кастомную функцию
+                    add_to_history(id(homeassistant_time), id(protection_history_sensor), reason_buffer);
+                
+                    std::string token = "$TELEGRAM_BOT_TOKEN";                    
                     log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
                     id(battery_in_rest_period) = true;
@@ -2783,5 +2789,6 @@ script:
       - delay: 15min
       - lambda: |-
           ESP_LOGI("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
+          add_to_history(id(homeassistant_time), id(protection_history_sensor), "(OK) Battery is under protection");
           id(battery_in_rest_period) = false;
           id(evaluate_charging_safety).execute();
