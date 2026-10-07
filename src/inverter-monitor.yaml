@@ -285,7 +285,7 @@ button:
               add_to_history(id(sntp_time), id(protection_history_sensor), "(Manual Reset) Fault cleared. Charging resumed.");
             
               // 4. Send the detailed markdown layout strictly to Telegram only
-              char tg_buffer[512];
+              char tg_buffer[256];
               snprintf(tg_buffer, sizeof(tg_buffer), 
                 "🔄 *BMS Recovery:* Fault cleared manually.\\nResuming normal charging operations.");
             
@@ -293,11 +293,11 @@ button:
               log_and_send_tg("safety", tg_buffer, token, id(bms_http_client));
 
               // 5. Force charging script evaluation to calculate and restore standard current targets
-              ESP_LOGI("safety", "Manual recovery triggered. Re-evaluating charging loops.");
+              ESP_LOGW("safety", "Manual recovery triggered. Re-evaluating charging loops.");
               id(evaluate_charging_safety).execute();
             } else {
               // accidentally clicked, ignore
-              ESP_LOGI("safety", "Manual recovery pressed, but no active faults detected.");
+              ESP_LOGW("safety", "Manual recovery pressed, but no active faults detected.");
             }
 
   - platform: template
@@ -2330,29 +2330,6 @@ select:
     load_config_preset:
       name: "Risky! BMS Load Config Preset"
 
-  - platform: template
-    name: "Target Charging Current Selector"
-    id: target_charging_current_select
-    icon: mdi:tune
-    optimistic: true
-    options:
-      - "1"
-      - "2"
-      - "5"
-      - "10"
-      - "15"
-      - "20"
-      - "25"
-      - "35"
-      - "50"
-      - "65"
-      - "90"
-    on_value:
-      then:
-        # Reset the permanent shutdown flag if the user manually tries to choose a new target current
-        - lambda: 'id(permanent_shutdown_active) = false;'
-        - script.execute: evaluate_charging_safety
-
 number:
   - platform: template
     name: "Protection: Hysteresis for Cell Voltage"
@@ -2781,8 +2758,7 @@ script:
               if (id(factory_mode_bypass).state) return false;
               
               // Added safety checking to prevent NaN errors on the new threshold sensors
-              if (id(target_charging_current_select).current_option().empty() || 
-                  std::isnan(id(delta_cell_voltage).state) ||
+              if (std::isnan(id(delta_cell_voltage).state) ||
                   std::isnan(id(input_delta_trigger_threshold).state) ||
                   std::isnan(id(input_max_cell_voltage).state) ||
                   std::isnan(id(inverter_charger_current).state) ||
