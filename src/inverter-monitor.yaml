@@ -221,7 +221,7 @@ globals:
     initial_value: 'false'
   - id: protection_history_list
     type: std::vector<std::string>
-    initial_value: '{}'
+    initial_value: 'std::vector<std::string>()'
 
 button:
   - platform: template
@@ -230,17 +230,9 @@ button:
     icon: mdi:refresh
     on_press:
       then:
-        - lambda: |-
-            // 1. Create the Modbus command payload (Value 1) using modbus_controller framework
-            std::vector<uint16_t> data = {1};
-            auto *command = new modbus_controller::ModbusCommandItem(
-                10112, // start address
-                1,     // number of registers
-                data,  // payload vector
-                modbus_controller::ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS
-            );
-            // Queue the command to your specific controller
-            id(must_inverter_super_slow).queue_command(command);
+        - lambda: !lambda |-
+            std::string log_msg = "Inverter accumulated values reset (Slave ID: " + std::to_string(0x04) + ")";
+            add_to_history(id(sntp_time), id(protection_history_sensor), log_msg);
 
   - platform: jk_bms_ble
     retrieve_settings:
@@ -2787,7 +2779,6 @@ script:
                   }
                   return;
                 }
-                
 
   # COOLDOWN COUNTDOWN TIMER (Only fires for high-current delta events)
   - id: cooldown_rest_timer
