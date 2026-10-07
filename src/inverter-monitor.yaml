@@ -224,21 +224,6 @@ globals:
     initial_value: 'std::vector<std::string>()'
 
 button:
-  - platform: template
-    name: "Inverter switch: Reset accumulated values"
-    id: inverter_ResetAccumValues
-    icon: mdi:refresh
-    on_press:
-      then:
-        - switch.turn_on: inverter_reset_register_wire
-        - switch.turn_off: inverter_reset_register_wire
-        - component.update: must_inverter_super_slow
-
-        - lambda: !lambda |-
-            uint8_t current_address = 0x04;
-            std::string log_msg = "Inverter Accumulated Values were reset (Slave ID: " + std::to_string(current_address) + ")";
-            add_to_history(id(sntp_time), id(protection_history_sensor), log_msg);
-
   - platform: jk_bms_ble
     retrieve_settings:
       id: "bms_retrieve_settings"
@@ -376,12 +361,6 @@ switch:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    id: inverter_reset_register_wire
-    register_type: holding
-    address: 20213 # or maybe 57092
-    internal: true
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
     name: "Inverter switch: Overload auto-restart disabled"
     id: inverter_OverLoadRestartForbid
     register_type: holding
@@ -451,13 +430,6 @@ switch:
     address: 20142
     bitmask: 0x0080
     icon: "mdi:database-lock"
-
-#  - platform: modbus_controller
-#    modbus_controller_id: must_inverter_super_slow
-#    id: inverter_Reset_Accumulated_Values
-#    name: "Inverter switch: reset accumulated values"
-#    register_type: holding
-#    address: 20213
 
   - platform: jk_bms_ble
     charging:
