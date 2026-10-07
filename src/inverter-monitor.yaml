@@ -612,9 +612,14 @@ binary_sensor:
 
 sensor:
   - platform: template
+    name: "Info: NIkon DSL (c), version 1.0"
+    id: info_version
+    update_interval: never
+
+  - platform: template
     name: "BMS DischargeToCharge Cycle Ratio"
     id: bms_battery_ratio
-    update_interval: never # Only updates when triggered right before the reset
+    update_interval: never
     unit_of_measurement: "%"
     accuracy_decimals: 2
     icon: "mdi:battery-heart-variant"
