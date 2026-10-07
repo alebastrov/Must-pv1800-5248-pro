@@ -16,11 +16,15 @@ inverter-monitor is 2-in-1 esp32 firmware which combines first one and second on
 
 ## Built-in Battery Protection System
 This is a feature to control charging on-board in esphome device (without handling it on HomeAssistant itself).
-The feature has 3 setting
+The feature has 6 setting and also may be completely off
 
 - Protection: Max Battery Voltage Allowed (55.0 V)
 - Protection: Max Cell Voltage Allowed (3.45 V)
 - Protection: Max Delta Allowed (0.015 V)
+- Protection: Hysteresis for Battery Voltage (0.2 V)
+- Protection: Hysteresis for Cell Delta (0.010 V)
+- Protection: Hysteresis for Cell Voltage (0.010 V)
+- Protection: OFF (Disable Safety Automation)
 
 if inverter charges the battery all 3 rules are taken into account, if any of them fails then charging is being stopped for 15 minutes
 After timeout is passed the inverter will get the same charging current as it was before protection event.

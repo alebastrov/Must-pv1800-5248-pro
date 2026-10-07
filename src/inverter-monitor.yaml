@@ -271,23 +271,29 @@ button:
     icon: "mdi:battery-refresh"
     on_press:
       then:
-        - lambda: |-
+        - lambda: !lambda |-
             if (id(permanent_shutdown_active) || id(battery_in_rest_period)) {
-              // 1. blocking was fired 
-              // 2. reset flags
+              // 1. Reset protection flags safely
               id(permanent_shutdown_active) = false;
               id(battery_in_rest_period) = false;
 
-              // 3. report that even
-              char msg_buffer[512];
-              snprintf(msg_buffer, sizeof(msg_buffer), 
+              // 2. Clear any active countdown recovery timers
+              id(cooldown_rest_timer).stop();
+
+              // 3. Log a short, clean, safe string to your Protection History timeline
+              // This completely prevents JSON document overflow crashes!
+              add_to_history(id(sntp_time), id(protection_history_sensor), "(Manual Reset) Fault cleared. Charging resumed.");
+            
+              // 4. Send the detailed markdown layout strictly to Telegram only
+              char tg_buffer[512];
+              snprintf(tg_buffer, sizeof(tg_buffer), 
                 "🔄 *BMS Recovery:* Fault cleared manually.\\nResuming normal charging operations.");
-              add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
             
               std::string token = "$TELEGRAM_BOT_TOKEN";
-              log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+              log_and_send_tg("safety", tg_buffer, token, id(bms_http_client));
 
-              // 4. set charging current as it was before blocking
+              // 5. Force charging script evaluation to calculate and restore standard current targets
+              ESP_LOGI("safety", "Manual recovery triggered. Re-evaluating charging loops.");
               id(evaluate_charging_safety).execute();
             } else {
               // accidentally clicked, ignore
@@ -2322,7 +2328,7 @@ select:
     multiplexed_port_mode:
       name: "BMS multiplexed port mode"
     load_config_preset:
-      name: "BMS Load Config Preset"
+      name: "Risky! BMS Load Config Preset"
 
   - platform: template
     name: "Target Charging Current Selector"
