@@ -23,6 +23,7 @@ esphome:
   friendly_name: inverter-monitor
   includes:
     - sender.h
+    - history.h
 
 esp32:
   variant: ESP32
@@ -218,19 +219,11 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  - id: protection_history_list
+    type: std::vector<std::string>
+    initial_value: 'std::vector<std::string>()'
 
 button:
-  - platform: template
-    name: "Inverter switch: Reset accumulated values"
-    id: inverter_ResetAccumValues
-    icon: mdi:refresh
-    on_press:
-      then:
-        - modbus_controller.write_register:
-            modbus_controller_id: must_inverter_super_slow
-            address: 10112
-            value: [ 1 ]
-
   - platform: jk_bms_ble
     retrieve_settings:
       id: "bms_retrieve_settings"
@@ -246,42 +239,50 @@ button:
       icon: "mdi:book-open-outline"
     shutdown:
       id: "bms_shutdown"
-      name: "BMS shutdown"
+      name: "Risky! BMS shutdown"
       icon: "mdi:power"
     restart:
       id: "bms_restart"
-      name: "BMS restart"
+      name: "Risky! BMS restart"
       icon: "mdi:restart"
     factory_reset:
       id: "bms_factory_reset"
-      name: "BMS factory reset"
+      name: "Risky! BMS factory reset (All setting will be empty)"
       icon: "mdi:factory"
 
   - platform: template
-    name: "BMS: Clear Fault & Resume Charge"
+    name: "Protection: Clear Fault & Resume Charge"
     id: bms_recover_from_avoiding_charging
     icon: "mdi:battery-refresh"
     on_press:
       then:
-        - lambda: |-
+        - lambda: !lambda |-
             if (id(permanent_shutdown_active) || id(battery_in_rest_period)) {
-              // 1. blocking was fired 
-              // 2. reset flags
+              // 1. Reset protection flags safely
               id(permanent_shutdown_active) = false;
               id(battery_in_rest_period) = false;
 
-              // 3. report that even
-              char msg_buffer[512];
-              snprintf(msg_buffer, sizeof(msg_buffer), 
-                "🔄 *BMS Recovery:* Fault cleared manually.\\nResuming normal charging operations.");
-              std::string token = "$TELEGRAM_BOT_TOKEN";
-              log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+              // 2. Clear any active countdown recovery timers
+              id(cooldown_rest_timer).stop();
 
-              // 4. set charging current as it was before blocking
+              // 3. Log a short, clean, safe string to your Protection History timeline
+              // This completely prevents JSON document overflow crashes!
+              add_to_history(id(sntp_time), id(protection_history_sensor), "(Manual Reset) Fault cleared. Charging resumed.");
+            
+              // 4. Send the detailed markdown layout strictly to Telegram only
+              char tg_buffer[256];
+              snprintf(tg_buffer, sizeof(tg_buffer), 
+                "🔄 *BMS Recovery:* Fault cleared manually.\\nResuming normal charging operations.");
+            
+              std::string token = "$TELEGRAM_BOT_TOKEN";
+              log_and_send_tg("safety", tg_buffer, token, id(bms_http_client));
+
+              // 5. Force charging script evaluation to calculate and restore standard current targets
+              ESP_LOGW("safety", "Manual recovery triggered. Re-evaluating charging loops.");
               id(evaluate_charging_safety).execute();
             } else {
               // accidentally clicked, ignore
-              ESP_LOGI("safety", "Manual recovery pressed, but no active faults detected.");
+              ESP_LOGW("safety", "Manual recovery pressed, but no active faults detected.");
             }
 
   - platform: template
@@ -317,6 +318,47 @@ button:
   #  Bit 6  LcdLightEnable          Keeps the LCD backlight permanently illuminated when enabled.
   #  Bit 7  RecordFaultForbid       Stops the inverter from saving or logging faults to its internal memory.
 switch:
+  - platform: template
+    name: "Protection: (Safety Automation)"
+    id: factory_mode_bypass
+    icon: "mdi:factory"
+    optimistic: true
+    # 1. TRIGGER FOR TURNING PROTECTION OFF (Bypass Mode Active)
+    on_turn_off:
+      then:
+        - lambda: !lambda |-
+            // Stop any running timers or lock states immediately
+            id(cooldown_rest_timer).stop();
+            id(battery_in_rest_period) = false;
+            id(permanent_shutdown_active) = false;
+            
+            char msg_buffer[512];
+            snprintf(msg_buffer, sizeof(msg_buffer),
+            "⚠️ Protection Disabled: Battery is out of control");
+            
+            add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
+            
+            std::string token = "$TELEGRAM_BOT_TOKEN";
+            log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+
+    # 2. TRIGGER FOR TURNING PROTECTION BACK ON (Bypass Mode Deactivated)
+    on_turn_on:
+      then:
+        - lambda: !lambda |-
+            char msg_buffer[512];
+            snprintf(msg_buffer, sizeof(msg_buffer), 
+              "✅ Protection Enabled: Battery is under control");
+            
+            add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
+            
+            std::string token = "$TELEGRAM_BOT_TOKEN";
+            log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+            
+            ESP_LOGI("safety", "Bypass released. Forcing live safety evaluation check.");
+            
+            // Instantly evaluate live metrics to catch any active overvoltages/deltas
+            id(evaluate_charging_safety).execute();
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     name: "Inverter switch: Overload auto-restart disabled"
@@ -389,13 +431,6 @@ switch:
     bitmask: 0x0080
     icon: "mdi:database-lock"
 
-#  - platform: modbus_controller
-#    modbus_controller_id: must_inverter_super_slow
-#    id: inverter_Reset_Accumulated_Values
-#    name: "Inverter switch: reset accumulated values"
-#    register_type: holding
-#    address: 20213
-
   - platform: jk_bms_ble
     charging:
       id: "charging"
@@ -450,7 +485,7 @@ switch:
 
   - platform: ble_client
     ble_client_id: client0
-    name: "BMS enable bluetooth connection"
+    name: "Risky! BMS bluetooth (You won't turn it on again remotely)"
     id: ble_client_switch0
 
 binary_sensor:
@@ -577,9 +612,14 @@ binary_sensor:
 
 sensor:
   - platform: template
+    name: "Info: NIkon DSL (c), version 1.0"
+    id: info_version
+    update_interval: never
+
+  - platform: template
     name: "BMS DischargeToCharge Cycle Ratio"
     id: bms_battery_ratio
-    update_interval: never # Only updates when triggered right before the reset
+    update_interval: never
     unit_of_measurement: "%"
     accuracy_decimals: 2
     icon: "mdi:battery-heart-variant"
@@ -598,14 +638,14 @@ sensor:
     modbus_controller_id: must_inverter_slow
     address: 20004
     register_type: holding
-    name: "Inverter Hardware version"
+    name: "Info: Inverter Hardware version"
     filters:
       - throttle: 200s
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 20005
     register_type: holding
-    name: "Inverter Software version"
+    name: "Info: Inverter Software version"
     filters:
       - throttle: 200s
 
@@ -749,7 +789,7 @@ sensor:
     address: 15216
     register_type: holding
     value_type: S_WORD
-    name: "Inverter Grade Rated Current"
+    name: "Info: Inverter Grade Rated Current"
     unit_of_measurement: "A"
     device_class: current
     icon: mdi:current-dc
@@ -835,7 +875,7 @@ sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    name: "Inverter Grade AC Voltage"
+    name: "Info: Inverter Grade AC Voltage"
     address: 25202
     register_type: holding
     value_type: S_WORD
@@ -847,7 +887,7 @@ sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
-    name: "Inverter Grade Rated Power"
+    name: "Info: Inverter Grade Rated Power"
     address: 25203
     register_type: holding
     value_type: S_WORD
@@ -1245,7 +1285,7 @@ sensor:
     address: 25275
     register_type: holding
     value_type: S_WORD
-    name: "Inverter Grade Battery Voltage"
+    name: "Info: Inverter Grade Battery Voltage"
     unit_of_measurement: "V"
     device_class: voltage
     icon: mdi:current-dc
@@ -1740,6 +1780,10 @@ sensor:
       - multiply: 0.001
 
 text_sensor:
+  - platform: template
+    name: "Protection: history (last 10)"
+    id: protection_history_sensor
+    icon: "mdi:history"
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -1798,7 +1842,7 @@ text_sensor:
     modbus_controller_id: must_inverter_super_slow
     address: 15213
     register_type: holding
-    name: "Inverter PV Charger error message"
+    name: "Inverter message: PV Charger error"
     raw_encode: HEXBYTES
     lambda: |-
       uint16_t value = (data[0] << 8) | data[1];
@@ -1832,7 +1876,7 @@ text_sensor:
     modbus_controller_id: must_inverter_super_slow
     address: 15214
     register_type: holding
-    name: "Inverter PV Charger warning message"
+    name: "Inverter message: PV Charger warning"
     raw_encode: HEXBYTES
     lambda: |-
       uint16_t value = (data[0] << 8) | data[1];
@@ -1897,7 +1941,7 @@ text_sensor:
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
-    name: "Inverter Machine Type"
+    name: "Info: Inverter Machine Type"
     address: 20000
     register_type: holding
     response_size: 4 # 2 registers at the same time = 4 bytes of total data
@@ -1941,7 +1985,7 @@ text_sensor:
     modbus_controller_id: must_inverter
     bitmask: 0
     address: 25261
-    name: "Inverter error message 1"
+    name: "Inverter message: error 1"
     raw_encode: HEXBYTES
     register_type: holding
     icon: mdi:alert-outline
@@ -1981,7 +2025,7 @@ text_sensor:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25262
-    name: "Inverter error message 2"
+    name: "Inverter message: error 2"
     register_type: holding
     icon: mdi:alert-outline
     raw_encode: HEXBYTES
@@ -2022,7 +2066,7 @@ text_sensor:
     modbus_controller_id: must_inverter
     address: 25263
     register_type: holding
-    name: "Inverter error message 3"
+    name: "Inverter message: error 3"
     icon: mdi:math-log
     raw_encode: HEXBYTES
     lambda: |-
@@ -2047,7 +2091,7 @@ text_sensor:
     modbus_controller_id: must_inverter_slow
     address: 25265
     register_type: holding
-    name: "Inverter warning message 1"
+    name: "Inverter message: warning 1"
     icon: mdi:shield-alert-outline
     raw_encode: HEXBYTES
     lambda: |-
@@ -2083,7 +2127,7 @@ text_sensor:
     modbus_controller_id: must_inverter_slow
     register_type: holding
     address: 25266
-    name: "Inverter warning message 2"
+    name: "Inverter message: warning 2"
     icon: mdi:shield-alert-outline
     raw_encode: HEXBYTES
     lambda: |-
@@ -2164,13 +2208,16 @@ text_sensor:
   - platform: jk_bms_ble
     jk_bms_ble_id: bms0
     software_version:
-      name: "JK-BMS Software Version"
+      id: bms_software_version
+      name: "Info: JK-BMS Software Version"
       icon: mdi:identifier
     hardware_version:
-      name: "JK-BMS Hardware Version"
+      id: bms_hardware_version
+      name: "Info: JK-BMS Hardware Version"
       icon: mdi:identifier
     device_model:
-      name: "JK-BMS Device Model"
+      id: bms_device_model
+      name: "Info: JK-BMS Device Model"
       icon: mdi:identifier
 
 select:
@@ -2258,32 +2305,48 @@ select:
     multiplexed_port_mode:
       name: "BMS multiplexed port mode"
     load_config_preset:
-      name: "BMS Load Config Preset"
-
-  - platform: template
-    name: "Target Charging Current Selector"
-    id: target_charging_current_select
-    icon: mdi:tune
-    optimistic: true
-    options:
-      - "1"
-      - "2"
-      - "5"
-      - "10"
-      - "15"
-      - "20"
-      - "25"
-      - "35"
-      - "50"
-      - "65"
-      - "90"
-    on_value:
-      then:
-        # Reset the permanent shutdown flag if the user manually tries to choose a new target current
-        - lambda: 'id(permanent_shutdown_active) = false;'
-        - script.execute: evaluate_charging_safety
+      name: "Risky! BMS Load Config Preset"
 
 number:
+  - platform: template
+    name: "Protection: Hysteresis for Cell Voltage"
+    id: input_hysteresis_cell
+    icon: "mdi:flask-outline"
+    min_value: 0.002
+    max_value: 0.100
+    step: 0.001
+    initial_value: 0.01
+    unit_of_measurement: "V"
+    device_class: voltage
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Protection: Hysteresis for Battery Voltage"
+    id: input_hysteresis_pack
+    icon: "mdi:battery-charging-outline"
+    min_value: 0.1
+    max_value: 1.0
+    step: 0.1
+    initial_value: 0.25
+    unit_of_measurement: "V"
+    device_class: voltage
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    name: "Protection: Hysteresis for Cell Delta"
+    id: input_hysteresis_delta
+    icon: "mdi:vector-difference"
+    min_value: 0.002
+    max_value: 0.100
+    step: 0.001
+    initial_value: 0.010
+    unit_of_measurement: "V"
+    device_class: voltage
+    optimistic: true
+    restore_value: true
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     id: batt_float_voltage
@@ -2668,10 +2731,11 @@ script:
     then:
       - if:
           condition:
-            lambda: |-
+            lambda: |-            
+              if (id(factory_mode_bypass).state) return false;
+              
               // Added safety checking to prevent NaN errors on the new threshold sensors
-              if (id(target_charging_current_select).current_option().empty() || 
-                  std::isnan(id(delta_cell_voltage).state) ||
+              if (std::isnan(id(delta_cell_voltage).state) ||
                   std::isnan(id(input_delta_trigger_threshold).state) ||
                   std::isnan(id(input_max_cell_voltage).state) ||
                   std::isnan(id(inverter_charger_current).state) ||
@@ -2687,8 +2751,7 @@ script:
                 float cell_delta = id(delta_cell_voltage).state;
                 float trigger_v = id(input_delta_trigger_threshold).state;
                 float active_current = id(inverter_charger_current).state;
-
-                // Считываем точные данные из сенсоров: номер ячейки и её вольтаж
+              
                 int bad_cell_num = (int)id(max_voltage_cell).state;
                 float bad_cell_v = id(max_cell_voltage).state;
                 float max_allowed_cell_v = id(input_max_cell_voltage).state;
@@ -2696,34 +2759,34 @@ script:
                 float max_allowed_batt_v = id(input_max_battery_voltage).state;
                 float total_batt_v = id(bms_battery_voltage).state;
 
-                // Выделяем безопасный буфер под текст сообщения (512 байт)
                 char msg_buffer[512];
 
-                // Проверяем все три условия перегрузки (High Delta OR Overvoltage Cell OR Overvoltage Pack)
-                bool trigger_intervention = (cell_delta >= trigger_v) || 
-                                            (bad_cell_v > max_allowed_cell_v) || 
-                                            (total_batt_v > 55.4f);
+                // Dynamically fetch configurations from your editable number settings
+                float hysteresis_cell = id(input_hysteresis_cell).state;
+                float hysteresis_pack = id(input_hysteresis_pack).state;
+                float hysteresis_delta = id(input_hysteresis_delta).state;
 
-                // 1. CRITICAL OVER-PARAMETER INTERVENTION
+                // 1. EVALUATE TURN-ON TRIGGER (Instant engagement on any violation)
+                bool trigger_intervention = (cell_delta >= trigger_v) || 
+                                            (bad_cell_v >= max_allowed_cell_v) || 
+                                            (total_batt_v >= max_allowed_batt_v);
+
                 if (trigger_intervention) {
                   if (!id(battery_in_rest_period)) {
-
-                    // Определяем причину срабатывания для более точного логирования
-                    const char* reason = "Cell Delta / Overvoltage Threshold Exceeded";
                     char reason_buffer[128];
 
-                    // Приоритетно определяем причину срабатывания с подстановкой вольтажа
                     if (bad_cell_v >= max_allowed_cell_v) {
-                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Max Cell Voltage Limit (>= %.3f V)", max_allowed_cell_v);
+                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Max Cell #%d Voltage Limit (>= %.3f V)", bad_cell_num, max_allowed_cell_v);
                     } else if (total_batt_v > max_allowed_batt_v) {
-                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Pack Battery Voltage Limit (> %.2f V)", max_allowed_batt_v);
+                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Pack Battery Voltage Limit (>= %.2f V)", max_allowed_batt_v);
                     } else {
                       snprintf(reason_buffer, sizeof(reason_buffer), "BMS Cell Delta Threshold Exceeded (>= %.3f V)", trigger_v);
                     }
+                    
+                    add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
 
-                    // ВАРИАНТ А: Если ток уже меньше 2А -> Полное перманентное отключение
                     if (active_current < 2.0f) {
-                      
+                      // Charging current has already been less than 2A      
                       snprintf(msg_buffer, sizeof(msg_buffer), 
                         "🚨 *CRITICAL: PERMANENT SHUTDOWN*\\n"
                         "Battery is saturated (Current < 2A with High Cell/Delta/Pack Max).\\n"
@@ -2735,9 +2798,9 @@ script:
                         "• *Bad Cell: #%d (%.3f V)*\\n\\n"
                         "Charging stopped completely until manual intervention.", 
                         reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
+                        add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
                       
                       std::string token = "$TELEGRAM_BOT_TOKEN";
-                      // Логирует локально через кастомную функцию
                       log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
                       id(permanent_shutdown_active) = true;
@@ -2747,8 +2810,7 @@ script:
                       call.perform();
                       return;
                     }
-
-                    // ВАРИАНТ Б: Переход в стандартный 15-минутный режим динамического восстановления
+                    // Charging current is greater than 2A, go to dynamic rest 15 min                  
                     snprintf(msg_buffer, sizeof(msg_buffer), 
                       "⚠️ *WARNING: DYNAMIC RECOVERY*\\n"
                       "Threshold breach detected. Dropping current for a 15m rest.\\n"
@@ -2758,10 +2820,10 @@ script:
                       "• Current Before: %.1f A\\n"
                       "• Pack Voltage: %.2f V\\n"
                       "• *Highest Cell: #%d (%.3f V)*", 
-                      reason, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
-                    std::string token = "$TELEGRAM_BOT_TOKEN";
-                    
-                    // Логирует локально через вашу кастомную функцию
+                      reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
+                    add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
+                
+                    std::string token = "$TELEGRAM_BOT_TOKEN";                    
                     log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
                     id(battery_in_rest_period) = true;
@@ -2775,13 +2837,28 @@ script:
                   return;
                 }
                 
+                // 2. EVALUATE TURN-OFF TRIGGER (Must drop below threshold minus dynamic hysteresis variables)
+                else if (id(battery_in_rest_period)) {
+                  bool safe_to_release = (bad_cell_v <= (max_allowed_cell_v - hysteresis_cell)) &&
+                                         (total_batt_v <= (max_allowed_batt_v - hysteresis_pack)) &&
+                                         (cell_delta <= (trigger_v - hysteresis_delta));
 
-  # COOLDOWN COUNTDOWN TIMER (Only fires for high-current delta events)
+                  if (safe_to_release) {
+                    ESP_LOGI("safety", "Metrics dropped safely below dynamic hysteresis zones. Ending rest recovery period.");
+                    
+                    id(cooldown_rest_timer).stop();
+                    add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Safe levels restored. Protection cleared.");
+                    id(battery_in_rest_period) = false;
+                  }
+                }
+
+  # COOLDOWN COUNTDOWN TIMER
   - id: cooldown_rest_timer
     mode: single
     then:
       - delay: 15min
       - lambda: |-
           ESP_LOGI("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
+          add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Battery is under protection");
           id(battery_in_rest_period) = false;
           id(evaluate_charging_safety).execute();
