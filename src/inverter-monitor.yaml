@@ -612,9 +612,11 @@ binary_sensor:
 
 sensor:
   - platform: template
-    name: "Info: NIkon DSL (c), version 1.0"
+    name: "Info: EspHome Must|JK BMS by NIkon DSL (c), version"
     id: info_version
     update_interval: never
+    lambda: |-
+      return {"1.0"};
 
   - platform: template
     name: "BMS DischargeToCharge Cycle Ratio"
