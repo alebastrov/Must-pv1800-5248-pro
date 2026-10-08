@@ -31,7 +31,7 @@ esphome:
       - lambda: |-
           if (my_led == nullptr) {
             my_led = new LedBlinkController(id(led_pwm_hardware));
-            App.register_component(my_led);
+            App.register_component_(my_led);
           }
       - delay: 1s
       - switch.turn_on: factory_mode_bypass
@@ -1763,7 +1763,7 @@ text_sensor:
     name: "Info: Inverter Hardware version"
     id: inverter_hardware_version
     lambda: |-
-      return format_version(id(inverter_hardware_version).state);
+      return format_version(std::stoi(x));
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1772,7 +1772,7 @@ text_sensor:
     name: "Info: Inverter Software version"
     id: inverter_software_version
     lambda: |-
-      return format_version(id(inverter_software_version).state);
+      return format_version(std::stoi(x));
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1782,7 +1782,7 @@ text_sensor:
     name: "Info: Inverter Communication Protocol version"
     icon: "mdi:code-braces"
     lambda: |-
-      return format_version(id(inverter_protocol_version).state);
+      return format_version(std::stoi(x));
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
