@@ -25,6 +25,16 @@ esphome:
     - sender.h
     - history.h
     - utils.h
+  on_boot:
+    priority: 800.0 # High priority runs right after hardware pins mount
+    then:
+      - lambda: |-
+          if (my_led == nullptr) {
+            my_led = new LedBlinkController(id(led_pwm_hardware));
+            App.register_component(my_led);
+          }
+      - delay: 1s
+      - switch.turn_on: factory_mode_bypass
 
 esp32:
   variant: ESP32
@@ -135,6 +145,11 @@ modbus_controller:
     max_cmd_retries: 5
     update_interval: 15min # Reads only once every 15 minutes!
 
+output:
+  - platform: ledc      # Change this to 'esp8266_pwm' if you use an older ESP8266
+    pin: GPIO2
+    id: led_pwm_hardware
+
 time:
   - platform: sntp
     id: sntp_time
@@ -206,11 +221,11 @@ globals:
   - id: bms_last_valid_efficiency
     type: float
     restore_value: true
-    initial_value: '100.0'
+    initial_value: '95.0'
   - id: battery_in_rest_period
     type: bool
     restore_value: no
-    initial_value: 'false'
+    initial_value: 'true'
   - id: permanent_shutdown_active
     type: bool
     restore_value: no
@@ -319,6 +334,21 @@ switch:
     icon: "mdi:factory"
     optimistic: true
     # 1. TRIGGER FOR TURNING PROTECTION OFF (Bypass Mode Active)
+    on_turn_on:
+      then:
+        - lambda: !lambda |-
+            char msg_buffer[512];
+            snprintf(msg_buffer, sizeof(msg_buffer), 
+              "✅ Protection Enabled: Battery is under control");
+
+            add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
+
+            std::string token = "$TELEGRAM_BOT_TOKEN";
+            log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+
+            ESP_LOGI("safety", "Bypass released. Forcing live safety evaluation check.");
+
+    # 2. TRIGGER FOR TURNING PROTECTION BACK ON (Bypass Mode Deactivated)
     on_turn_off:
       then:
         - lambda: !lambda |-
@@ -335,21 +365,6 @@ switch:
             
             std::string token = "$TELEGRAM_BOT_TOKEN";
             log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
-
-    # 2. TRIGGER FOR TURNING PROTECTION BACK ON (Bypass Mode Deactivated)
-    on_turn_on:
-      then:
-        - lambda: !lambda |-
-            char msg_buffer[512];
-            snprintf(msg_buffer, sizeof(msg_buffer), 
-              "✅ Protection Enabled: Battery is under control");
-            
-            add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
-            
-            std::string token = "$TELEGRAM_BOT_TOKEN";
-            log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
-            
-            ESP_LOGI("safety", "Bypass released. Forcing live safety evaluation check.");
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1739,7 +1754,7 @@ text_sensor:
     id: info_configuration_version
     update_interval: never
     lambda: |-
-      return format_version("10103");
+      return format_version(10103);
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow

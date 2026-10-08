@@ -1,122 +1,85 @@
 #pragma once
 #include "esphome.h"
 #include <string>
-#include <sstream>
+#include <cstdlib>
 
 #ifdef USE_ARDUINO
 #include <Arduino.h>
 #endif
 
-inline std::string _process_version_numeric(long long value, const std::string& raw_display) {
-    if (value < 0 || value > 9990000) {
-        return "Invalid version number: " + raw_display;
-    }
-
+// ==========================================
+// VERSION FORMATTING LOGIC
+// ==========================================
+inline std::string format_version(int value) {
     int major = value / 10000;
     int minor = (value / 100) % 100;
     int patch = value % 100;
 
-    char buffer[16];
-    snprintf(buffer, sizeof(buffer), "%d.%02d.%02d", major, minor, patch);
-    return std::string(buffer);
-}
+    std::string minor_str = std::to_string(minor);
+    if (minor < 10) minor_str = "0" + minor_str;
 
-// Robust text sensor handler that extracts only digits
-inline std::string format_version(std::string raw_state) {
-    if (raw_state.empty()) {
-        return "Unknown version";
-    }
+    std::string patch_str = std::to_string(patch);
+    if (patch < 10) patch_str = "0" + patch_str;
 
-    // Strip out all dots, 'v', spaces, or other punctuation characters
-    std::string sanitized = "";
-    for (char c : raw_state) {
-        if (std::isdigit(c)) {
-            sanitized += c;
-        }
-    }
-
-    // If no numbers were found at all, return the original state text
-    if (sanitized.empty()) {
-        return "Unknown version";
-    }
-
-    long long value = 0;
-    std::stringstream ss(sanitized);
-    ss >> value;
-
-    return _process_version_numeric(value, raw_state);
-}
-
-// Overload for direct integer values (like 10103)
-inline std::string format_version(int value) {
-    return _process_version_numeric(value, std::to_string(value));
-}
-
-// Overload for raw string literals (like "10103" or "1.01.03") passed in lambdas
-inline std::string format_version(const char* raw_str) {
-    return format_version(std::string(raw_str));
+    return std::to_string(major) + "." + minor_str + "." + patch_str;
 }
 
 // ==========================================
-// LED BLINK CONTROLLER
+// SEPARATED LED BLINK CONTROLLER
 // ==========================================
 class LedBlinkController : public esphome::Component {
  private:
-    int pin_;
+    esphome::output::FloatOutput *pwm_out_;
     uint32_t on_time_ = 0;
     uint32_t off_time_ = 0;
-    uint32_t last_toggle_ = 0;
-    bool led_state_ = false;
     bool is_blinking_ = false;
+    std::string active_id_ = "";
 
  public:
-    LedBlinkController(int pin) : pin_(pin) {}
+    LedBlinkController(esphome::output::FloatOutput *pwm_out) : pwm_out_(pwm_out) {}
 
-    void setup() override {
-#ifdef USE_ARDUINO
-        pinMode(pin_, OUTPUT);
-        digitalWrite(pin_, LOW);
-#endif
-    }
-
-    void loop() override {
-        if (!is_blinking_) return;
-
-        uint32_t now = millis();
-        uint32_t target_delay = led_state_ ? on_time_ : off_time_;
-
-        if (now - last_toggle_ >= target_delay) {
-            led_state_ = !led_state_;
-#ifdef USE_ARDUINO
-            digitalWrite(pin_, led_state_ ? HIGH : LOW);
-#endif
-            last_toggle_ = now;
-        }
-    }
-
-    void set_pattern(uint32_t on_ms, uint32_t off_ms) {
-        on_time_ = on_ms;
-        off_time_ = off_ms;
-        is_blinking_ = true;
-        led_state_ = true;
-#ifdef USE_ARDUINO
-        digitalWrite(pin_, HIGH);
-#endif
-        last_toggle_ = millis();
+    void set_pattern(const std::string& pattern_name, uint32_t on_ms, uint32_t off_ms) {
+        this->active_id_ = pattern_name;
+        this->on_time_ = on_ms;
+        this->off_time_ = off_ms;
+        this->is_blinking_ = true;
+        this->execute_cycle(pattern_name);
     }
 
     void stop() {
-        is_blinking_ = false;
-#ifdef USE_ARDUINO
-        digitalWrite(pin_, LOW);
-#endif
+        this->is_blinking_ = false;
+        this->active_id_ = "";
+        this->cancel_timeout("pwm_blink");
+        if (this->pwm_out_) this->pwm_out_->set_level(0.0f); // Turn off PWM
+    }
+
+ private:
+    void execute_cycle(std::string pattern_id) {
+        // If pattern changed or blinking stopped, terminate this specific loop branch
+        if (!this->is_blinking_ || this->active_id_ != pattern_id) return;
+
+        // Turn LED ON (1.0f means 100% duty cycle full brightness)
+        if (this->pwm_out_) this->pwm_out_->set_level(1.0f);
+
+        // Schedule to drop low after ON duration completes
+        this->set_timeout("pwm_blink", this->on_time_, [this, pattern_id]() {
+            if (!this->is_blinking_ || this->active_id_ != pattern_id) return;
+
+            // Turn LED OFF (0.0f means 0% duty cycle)
+            if (this->pwm_out_) this->pwm_out_->set_level(0.0f);
+
+            // Schedule next repeat cycle after OFF duration completes
+            this->set_timeout("pwm_blink", this->off_time_, [this, pattern_id]() {
+                this->execute_cycle(pattern_id);
+            });
+        });
     }
 };
 
-// Global pointer to access the controller safely from YAML lambdas
+// Global accessor reference variable
 inline LedBlinkController* my_led = nullptr;
 
-inline void set_led_under_protection() { if(my_led) my_led->set_pattern(100, 900); }
-inline void set_led_limiting_current() { if(my_led) my_led->set_pattern(350, 150); }
-inline void set_led_no_protection()    { if(my_led) my_led->set_pattern(100, 1900); }
+inline void set_led_under_protection() { if(my_led) my_led->set_pattern("prot", 100, 900); }
+inline void set_led_limiting_current() { if(my_led) my_led->set_pattern("lim", 350, 150); }
+inline void set_led_no_protection()    { if(my_led) my_led->set_pattern("none", 100, 1900); }
 inline void stop_led_blinking()        { if(my_led) my_led->stop(); }
