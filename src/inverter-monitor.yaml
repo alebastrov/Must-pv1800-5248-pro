@@ -1735,7 +1735,7 @@ text_sensor:
     icon: "mdi:history"
 
   - platform: template
-    name: "Info: EspHome Must|JK BMS by NIkon DSL (c), version"
+    name: "Info: Must|JK BMS version"
     id: info_configuration_version
     update_interval: never
     lambda: |-

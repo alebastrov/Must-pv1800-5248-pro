@@ -1,8 +1,8 @@
 #pragma once
 #include "esphome.h"
 #include <string>
+#include <sstream>
 
-// Include Arduino framework headers so pinMode and digitalWrite work on ESP32
 #ifdef USE_ARDUINO
 #include <Arduino.h>
 #endif
@@ -11,9 +11,7 @@
 // 1. VERSION FORMATTING LOGIC
 // ==========================================
 
-// Helper function that processes the actual mathematical conversion
 inline std::string _process_version_numeric(long long value, const std::string& raw_display) {
-    // 999.00.00 maps to 9990000
     if (value < 0 || value > 9990000) {
         return "Invalid version number: " + raw_display;
     }
@@ -27,36 +25,35 @@ inline std::string _process_version_numeric(long long value, const std::string& 
     return std::string(buffer);
 }
 
-// OVERLOAD 1: For text_sensor states (std::string)
+// Fixed string parser utilizing stringstreams to safely convert text to numbers
 inline std::string format_version(std::string raw_state) {
     if (raw_state.empty()) {
         return "Unknown version";
     }
 
-    // Manual string parsing to bypass disabled C++ exceptions (try/catch)
-    bool is_numeric = true;
-    for (char const &c : raw_state) {
-        if (!std::isdigit(c) && c != '-') {
-            is_numeric = false;
-            break;
-        }
-    }
+    long long value = 0;
+    std::stringstream ss(raw_state);
 
-    if (!is_numeric) {
+    // Safely parse the string text as a number without using try/catch
+    if (!(ss >> value)) {
         return "Invalid version number: " + raw_state;
     }
 
-    long long value = std::strtoll(raw_state.c_str(), nullptr, 10);
     return _process_version_numeric(value, raw_state);
 }
 
-// OVERLOAD 2: For regular numerical inputs (like the raw 10103 hardcoded in YAML)
+// Overload for direct integer values (like hardcoded 10103)
 inline std::string format_version(int value) {
     return _process_version_numeric(value, std::to_string(value));
 }
 
+// Overload for raw string literals (like "10103") passed directly in lambdas
+inline std::string format_version(const char* raw_str) {
+    return format_version(std::string(raw_str));
+}
+
 // ==========================================
-// 2. SEPARATED LED BLINK CONTROLLER
+// LED BLINK CONTROLLER
 // ==========================================
 class LedBlinkController : public esphome::Component {
  private:
