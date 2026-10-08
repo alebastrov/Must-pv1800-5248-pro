@@ -7,10 +7,6 @@
 #include <Arduino.h>
 #endif
 
-// ==========================================
-// 1. VERSION FORMATTING LOGIC
-// ==========================================
-
 inline std::string _process_version_numeric(long long value, const std::string& raw_display) {
     if (value < 0 || value > 9990000) {
         return "Invalid version number: " + raw_display;
@@ -25,29 +21,38 @@ inline std::string _process_version_numeric(long long value, const std::string& 
     return std::string(buffer);
 }
 
-// Fixed string parser utilizing stringstreams to safely convert text to numbers
+// Robust text sensor handler that extracts only digits
 inline std::string format_version(std::string raw_state) {
     if (raw_state.empty()) {
         return "Unknown version";
     }
 
-    long long value = 0;
-    std::stringstream ss(raw_state);
-
-    // Safely parse the string text as a number without using try/catch
-    if (!(ss >> value)) {
-        return "Invalid version number: " + raw_state;
+    // Strip out all dots, 'v', spaces, or other punctuation characters
+    std::string sanitized = "";
+    for (char c : raw_state) {
+        if (std::isdigit(c)) {
+            sanitized += c;
+        }
     }
+
+    // If no numbers were found at all, return the original state text
+    if (sanitized.empty()) {
+        return "Unknown version";
+    }
+
+    long long value = 0;
+    std::stringstream ss(sanitized);
+    ss >> value;
 
     return _process_version_numeric(value, raw_state);
 }
 
-// Overload for direct integer values (like hardcoded 10103)
+// Overload for direct integer values (like 10103)
 inline std::string format_version(int value) {
     return _process_version_numeric(value, std::to_string(value));
 }
 
-// Overload for raw string literals (like "10103") passed directly in lambdas
+// Overload for raw string literals (like "10103" or "1.01.03") passed in lambdas
 inline std::string format_version(const char* raw_str) {
     return format_version(std::string(raw_str));
 }
