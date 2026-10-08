@@ -24,6 +24,7 @@ esphome:
   includes:
     - sender.h
     - history.h
+    - utils.h
 
 esp32:
   variant: ESP32
@@ -611,12 +612,6 @@ binary_sensor:
     icon: "mdi:arrow-right-bold-circle-outline"
 
 sensor:
-  - platform: template
-    name: "Info: EspHome Must|JK BMS by NIkon DSL (c), version"
-    id: info_version
-    update_interval: never
-    lambda: |-
-      return {"1.0"};
 
   - platform: template
     name: "BMS DischargeToCharge Cycle Ratio"
@@ -631,25 +626,8 @@ sensor:
       
       if (charge > 0.0) {
         return (discharge / charge) * 100.0;
-      } else {
-        return 0.0;
-      }
-
-  #Inverter Control Message
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20004
-    register_type: holding
-    name: "Info: Inverter Hardware version"
-    filters:
-      - throttle: 200s
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20005
-    register_type: holding
-    name: "Info: Inverter Software version"
-    filters:
-      - throttle: 200s
+      } 
+      return 0.0;      
 
   # Inverter BMS section if connected
   # Block 1xx (External BMS)
@@ -1294,19 +1272,6 @@ sensor:
     reuse_previous_range: false
     filters:
       - throttle: 200s
-# duplicate
-#  - platform: modbus_controller
-#    modbus_controller_id: must_inverter_super_slow
-#    address: 15215
-#    register_type: holding
-#    value_type: S_WORD
-#    name: "Inverter Grade Battery Voltage"
-#    unit_of_measurement: "V"
-#    device_class: voltage
-#    icon: mdi:current-dc
-#    reuse_previous_range: false
-#    filters:
-#      - throttle: 200s
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -1316,17 +1281,8 @@ sensor:
     value_type: U_WORD
     accuracy_decimals: 0
 
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    id: protocol_version_raw
-    address: 20005
-    register_type: holding
-    internal: true
-    name: "Inverter Communication Protocol version raw"
-
-  # уровень вайфай сигнала
   - platform: wifi_signal
-    name: "Inverter WiFi signal strength"
+    name: "Info: WiFi signal strength"
     entity_category: diagnostic
     device_class: signal_strength
     id: wifi_sig
@@ -1340,7 +1296,7 @@ sensor:
   - platform: integration
     name: "BMS Total Lifetime Discharge"
     id: bms_total_lifetime_discharge
-    sensor: discharging_power_sensor # <-- Point to your raw discharge power sensor
+    sensor: discharging_power_sensor
     time_unit: h
     integration_method: left
     accuracy_decimals: 1
@@ -1787,6 +1743,41 @@ text_sensor:
     id: protection_history_sensor
     icon: "mdi:history"
 
+  - platform: template
+    name: "Info: EspHome Must|JK BMS by NIkon DSL (c), version"
+    id: info_configuration_version
+    update_interval: never
+    lambda: |-
+      return format_version(10103);
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 20004
+    register_type: holding
+    name: "Info: Inverter Hardware version"
+    id: inverter_hardware_version
+    lambda: |-
+      return format_version(id(inverter_hardware_version).state);
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 20005
+    register_type: holding
+    name: "Info: Inverter Software version"
+    id: inverter_software_version
+    lambda: |-
+      return format_version(id(inverter_software_version).state);
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    id: inverter_protocol_version
+    address: 20005
+    register_type: holding
+    name: "Info: Inverter Communication Protocol version"
+    icon: "mdi:code-braces"
+    lambda: |-
+      return format_version(id(inverter_protocol_version).state);
+
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
     address: 15201
@@ -1968,22 +1959,6 @@ text_sensor:
       return {buffer};
 
   - platform: modbus_controller
-    modbus_controller_id: must_inverter_slow
-    address: 20005
-    register_type: holding
-    name: "Inverter Communication Protocol version"
-    icon: "mdi:code-braces"
-    lambda: |-
-      int value = id(protocol_version_raw).state;
-      int major = value / 10000;
-      int minor = (value / 100) % 100;
-      int patch = value % 100;
-      
-      char buffer[16];
-      sprintf(buffer, "%d.%02d.%02d", major, minor, patch);
-      return {buffer};
-
-  - platform: modbus_controller
     modbus_controller_id: must_inverter
     bitmask: 0
     address: 25261
@@ -2036,9 +2011,9 @@ text_sensor:
       std::vector<std::string> faults;
       
       if (value & (1 << 0))  faults.push_back("Radiator Over Temperature");
-      if (value & (1 << 1))  faults.push_back("Solar Charger Battery Voltage Class Error");
-      if (value & (1 << 2))  faults.push_back("Solar Charger Current Sensor Error");
-      if (value & (1 << 3))  faults.push_back("Solar Charger Current Uncontrollable");
+      if (value & (1 << 1))  faults.push_back("PV Charger Battery Voltage Class Error");
+      if (value & (1 << 2))  faults.push_back("PV Charger Current Sensor Error");
+      if (value & (1 << 3))  faults.push_back("PV Charger Current Uncontrollable");
       if (value & (1 << 4))  faults.push_back("Grid Voltage Too Low");
       if (value & (1 << 5))  faults.push_back("Grid Voltage Too High");
       if (value & (1 << 6))  faults.push_back("Grid Under Frequency");
@@ -2170,6 +2145,7 @@ text_sensor:
 
   - platform: jk_bms_ble
     errors:
+      id: errors
       name: "BMS errors"
       icon: mdi:math-log
     errors_bitmask_hex:
@@ -2180,32 +2156,36 @@ text_sensor:
       name: "BMS balancer status"
       icon: mdi:list-status
     total_runtime_formatted:
+      id: total_runtime_formatted
       name: "BMS total runtime formatted"
       icon: mdi:watch-variant
     charge_status:
       name: "BMS charge status"
       icon: mdi:state-machine
     battery_type:
-      name: "BMS battery type"
+      name: "Info: BMS battery type"
+      id: bms_battery_type
       icon: mdi:format-list-bulleted-type
     manufacturing_date:
-      name: "BMS manufacturing date"
+      id: bms_manufacturing_date
+      name: "Info: BMS manufacturing date"
       icon: mdi:watch-variant
     serial_number:
-      name: "BMS serial number"
+      id: bms_serial_number
+      name: "Info: BMS serial number"
       icon: mdi:identifier
 
   - platform: wifi_info
     ip_address:
-      name: Inverter WiFi IP Address
+      name: "Info: WiFi IP Address"
     ssid:
-      name: Inverter WiFi Connected SSID
+      name: "Info: WiFi Connected SSID"
     bssid:
-      name: Inverter WiFi Connected BSSID
+      name: "Info: WiFi Connected BSSID"
     mac_address:
-      name: Inverter WiFi Mac Address
+      name: "Info: WiFi Mac Address"
     dns_address:
-      name: Inverter WiFi DNS Address
+      name: "Info: WiFi DNS Address"
 
   - platform: jk_bms_ble
     jk_bms_ble_id: bms0
@@ -2291,7 +2271,7 @@ select:
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
     id: batt_type
-    name: "Inverter Battery Type"
+    name: "Info: Inverter Battery Type"
     icon: mdi:battery
     address: 10110
     optionsmap:
