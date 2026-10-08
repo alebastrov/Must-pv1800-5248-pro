@@ -98,11 +98,6 @@ web_server:
   port: 80
   local: true
 
-status_led:
-  pin:
-    number: GPIO2
-    ignore_strapping_warning: true
-
 uart:
   - id: uart_inverter
     baud_rate: 19200
@@ -280,7 +275,6 @@ button:
 
               // 5. Force charging script evaluation to calculate and restore standard current targets
               ESP_LOGW("safety", "Manual recovery triggered. Re-evaluating charging loops.");
-              id(evaluate_charging_safety).execute();
             } else {
               // accidentally clicked, ignore
               ESP_LOGW("safety", "Manual recovery pressed, but no active faults detected.");
@@ -356,9 +350,6 @@ switch:
             log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
             
             ESP_LOGI("safety", "Bypass released. Forcing live safety evaluation check.");
-            
-            // Instantly evaluate live metrics to catch any active overvoltages/deltas
-            id(evaluate_charging_safety).execute();
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -505,21 +496,21 @@ binary_sensor:
       id: "dry_contact_2"
       name: "BMS dry contact 2"
 
-#  - platform: modbus_controller
-#    modbus_controller_id: must_inverter_slow
-#    address: 15211
-#    register_type: holding
-#    name: "Inverter Relay Status Battery"
-#    icon: mdi:electric-switch
-#    device_class: opening
-#
-#  - platform: modbus_controller
-#    modbus_controller_id: must_inverter_slow
-#    address: 15212
-#    register_type: holding
-#    name: "Inverter Relay Status PV"
-#    icon: mdi:electric-switch
-#    device_class: opening
+  #  - platform: modbus_controller
+  #    modbus_controller_id: must_inverter_slow
+  #    address: 15211
+  #    register_type: holding
+  #    name: "Inverter Relay Status Battery"
+  #    icon: mdi:electric-switch
+  #    device_class: opening
+  #
+  #  - platform: modbus_controller
+  #    modbus_controller_id: must_inverter_slow
+  #    address: 15212
+  #    register_type: holding
+  #    name: "Inverter Relay Status PV"
+  #    icon: mdi:electric-switch
+  #    device_class: opening
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -775,7 +766,7 @@ sensor:
     icon: mdi:current-dc
     reuse_previous_range: false
     filters:
-        multiply: 0.1
+      multiply: 0.1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -1748,7 +1739,7 @@ text_sensor:
     id: info_configuration_version
     update_interval: never
     lambda: |-
-      return format_version(10103);
+      return format_version("10103");
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -2357,17 +2348,17 @@ number:
     step: 0.1
     multiply: 10
 
-#unknown for pv1800
-#  - platform: modbus_controller
-#    modbus_controller_id: must_inverter_super_slow
-#    id: batt_max_dischg_current
-#    name: "Inverter Battery Max Discharging Current #1"
-#    unit_of_measurement: "A"
-#    icon: mdi:battery-arrow-down-outline
-#    device_class: current
-#    address: 20113
-#    value_type: U_WORD
-#    multiply: 10
+  #unknown for pv1800
+  #  - platform: modbus_controller
+  #    modbus_controller_id: must_inverter_super_slow
+  #    id: batt_max_dischg_current
+  #    name: "Inverter Battery Max Discharging Current #1"
+  #    unit_of_measurement: "A"
+  #    icon: mdi:battery-arrow-down-outline
+  #    device_class: current
+  #    address: 20113
+  #    value_type: U_WORD
+  #    multiply: 10
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -2486,20 +2477,20 @@ number:
     max_value: 120
     step: 1
 
-# duplicate
-#  - platform: modbus_controller
-#    modbus_controller_id: must_inverter_super_slow
-#    id: grid_max_chrg_current
-#    name: "Inverter Grid Max Charging Current"
-#    unit_of_measurement: "A"
-#    icon: mdi:current-dc
-#    device_class: current
-#    address: 20125
-#    value_type: U_WORD
-#    multiply: 10
-#    min_value: 1.0
-#    max_value: 100.0
-#    step: 1
+  # duplicate
+  #  - platform: modbus_controller
+  #    modbus_controller_id: must_inverter_super_slow
+  #    id: grid_max_chrg_current
+  #    name: "Inverter Grid Max Charging Current"
+  #    unit_of_measurement: "A"
+  #    icon: mdi:current-dc
+  #    device_class: current
+  #    address: 20125
+  #    value_type: U_WORD
+  #    multiply: 10
+  #    min_value: 1.0
+  #    max_value: 100.0
+  #    step: 1
 
   - platform: jk_bms_ble
     jk_bms_ble_id: bms0
@@ -2706,6 +2697,11 @@ number:
     initial_value: 55.0
     optimistic: true
 
+interval:
+  - interval: 5s
+    then:
+      - script.execute: evaluate_charging_safety
+
 script:
   # MAIN EVALUATION: Controls baseline operations and manages dynamic high-delta interventions
   - id: evaluate_charging_safety
@@ -2713,9 +2709,11 @@ script:
     then:
       - if:
           condition:
-            lambda: |-            
-              if (id(factory_mode_bypass).state) return false;
-              
+            lambda: |-
+              set_led_no_protection();
+              if (id(factory_mode_bypass).state) {
+                return false;
+              }              
               // Added safety checking to prevent NaN errors on the new threshold sensors
               if (std::isnan(id(delta_cell_voltage).state) ||
                   std::isnan(id(input_delta_trigger_threshold).state) ||
@@ -2726,14 +2724,17 @@ script:
                 return false;
               }
               // Lock down execution completely if a permanent low-current shutdown was flagged
-              if (id(permanent_shutdown_active)) return false;
+              if (id(permanent_shutdown_active)) {
+                stop_led_blinking();
+                return false;
+              }
               return true;
           then:
             - lambda: |-
                 float cell_delta = id(delta_cell_voltage).state;
                 float trigger_v = id(input_delta_trigger_threshold).state;
                 float active_current = id(inverter_charger_current).state;
-              
+                
                 int bad_cell_num = (int)id(max_voltage_cell).state;
                 float bad_cell_v = id(max_cell_voltage).state;
                 float max_allowed_cell_v = id(input_max_cell_voltage).state;
@@ -2754,6 +2755,7 @@ script:
                                             (total_batt_v >= max_allowed_batt_v);
 
                 if (trigger_intervention) {
+                
                   if (!id(battery_in_rest_period)) {
                     char reason_buffer[128];
 
@@ -2764,7 +2766,7 @@ script:
                     } else {
                       snprintf(reason_buffer, sizeof(reason_buffer), "BMS Cell Delta Threshold Exceeded (>= %.3f V)", trigger_v);
                     }
-                    
+                
                     add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
 
                     if (active_current < 2.0f) {
@@ -2781,17 +2783,19 @@ script:
                         "Charging stopped completely until manual intervention.", 
                         reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
                         add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
-                      
+                
                       std::string token = "$TELEGRAM_BOT_TOKEN";
                       log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
-
+                      stop_led_blinking();
+                
                       id(permanent_shutdown_active) = true;
-                      
+                
                       auto call = id(inverter_charger_current).make_call();
                       call.set_value(1.0f); // Forces the inverter to its absolute lowest possible state
                       call.perform();
                       return;
                     }
+                    set_led_limiting_current();
                     // Charging current is greater than 2A, go to dynamic rest 15 min                  
                     snprintf(msg_buffer, sizeof(msg_buffer), 
                       "⚠️ *WARNING: DYNAMIC RECOVERY*\\n"
@@ -2803,13 +2807,13 @@ script:
                       "• Pack Voltage: %.2f V\\n"
                       "• *Highest Cell: #%d (%.3f V)*", 
                       reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
-                    add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
+                    add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);                
                 
                     std::string token = "$TELEGRAM_BOT_TOKEN";                    
                     log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
                     id(battery_in_rest_period) = true;
-                    
+                
                     auto call = id(inverter_charger_current).make_call();
                     call.set_value(1.0f);
                     call.perform();
@@ -2820,18 +2824,21 @@ script:
                 }
                 
                 // 2. EVALUATE TURN-OFF TRIGGER (Must drop below threshold minus dynamic hysteresis variables)
-                else if (id(battery_in_rest_period)) {
+                else if (id(battery_in_rest_period)) {                
                   bool safe_to_release = (bad_cell_v <= (max_allowed_cell_v - hysteresis_cell)) &&
                                          (total_batt_v <= (max_allowed_batt_v - hysteresis_pack)) &&
                                          (cell_delta <= (trigger_v - hysteresis_delta));
 
                   if (safe_to_release) {
+                    set_led_under_protection();
                     ESP_LOGI("safety", "Metrics dropped safely below dynamic hysteresis zones. Ending rest recovery period.");
-                    
+                
                     id(cooldown_rest_timer).stop();
                     add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Safe levels restored. Protection cleared.");
                     id(battery_in_rest_period) = false;
+                    return;
                   }
+                  stop_led_blinking();
                 }
 
   # COOLDOWN COUNTDOWN TIMER
