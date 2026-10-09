@@ -147,7 +147,9 @@ modbus_controller:
 
 output:
   - platform: ledc      # Change this to 'esp8266_pwm' if you use an older ESP8266
-    pin: GPIO2
+    pin:
+      number: GPIO2
+      ignore_strapping_warning: true
     id: led_pwm_hardware
 
 time:
