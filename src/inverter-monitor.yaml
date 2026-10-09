@@ -34,7 +34,7 @@ esphome:
             App.register_component_(my_led);
           }
       - delay: 1s
-      - switch.turn_on: factory_mode_bypass
+      - switch.turn_on: protection_enabled
 
 esp32:
   variant: ESP32
@@ -72,12 +72,12 @@ wifi:
     password: "12345678"
 
 logger:
-  level: WARN
+  level: INFO
   hardware_uart: UART0
   tx_buffer_size: 256
   logs:
-    modbus: WARN
-    modbus_controller: WARN
+    modbus: INFO
+    modbus_controller: INFO
 
 mdns:
   disabled: true       # Disables network name caching, saving heap RAM
@@ -172,6 +172,7 @@ time:
           - lambda: |-
               id(battery_in_rest_period) = false;
               id(permanent_shutdown_active) = false;
+              id(cooldown_rest_timer).stop();
           - logger.log: "Global variables and daily meters have been reset at 23:00:00"
 
       # ==========================================
@@ -225,7 +226,7 @@ globals:
   - id: battery_in_rest_period
     type: bool
     restore_value: no
-    initial_value: 'true'
+    initial_value: 'false'
   - id: permanent_shutdown_active
     type: bool
     restore_value: no
@@ -262,34 +263,31 @@ button:
       icon: "mdi:factory"
 
   - platform: template
-    name: "Protection: Clear Fault & Resume Charge"
+    name: "Protection: Clear Faults & Resume Charge"
     id: bms_recover_from_avoiding_charging
     icon: "mdi:battery-refresh"
     on_press:
       then:
         - lambda: !lambda |-
             if (id(permanent_shutdown_active) || id(battery_in_rest_period)) {
-              // 1. Reset protection flags safely
+              // Reset protection flags safely
               id(permanent_shutdown_active) = false;
-              id(battery_in_rest_period) = false;
-
-              // 2. Clear any active countdown recovery timers
+              id(battery_in_rest_period) = false;          
               id(cooldown_rest_timer).stop();
+              id(protection_enabled).turn_on();
 
-              // 3. Log a short, clean, safe string to your Protection History timeline
-              // This completely prevents JSON document overflow crashes!
-              add_to_history(id(sntp_time), id(protection_history_sensor), "(Manual Reset) Fault cleared. Charging resumed.");
+              // Log a short, clean, safe string to Protection History              
+              add_to_history(id(sntp_time), id(protection_history_sensor), "(Manual Reset) Faults cleared. Charging resumed.");
             
-              // 4. Send the detailed markdown layout strictly to Telegram only
+              // Send the detailed markdown layout strictly to Telegram only
               char tg_buffer[256];
               snprintf(tg_buffer, sizeof(tg_buffer), 
-                "🔄 *BMS Recovery:* Fault cleared manually.\\nResuming normal charging operations.");
+                "🔄 *BMS Recovery:* Faults cleared manually.\\nResuming normal charging operations.");
             
               std::string token = "$TELEGRAM_BOT_TOKEN";
               log_and_send_tg("safety", tg_buffer, token, id(bms_http_client));
 
-              // 5. Force charging script evaluation to calculate and restore standard current targets
-              ESP_LOGW("safety", "Manual recovery triggered. Re-evaluating charging loops.");
+              // Force charging script evaluation to calculate and restore standard current targets
             } else {
               // accidentally clicked, ignore
               ESP_LOGW("safety", "Manual recovery pressed, but no active faults detected.");
@@ -329,42 +327,47 @@ button:
   #  Bit 7  RecordFaultForbid       Stops the inverter from saving or logging faults to its internal memory.
 switch:
   - platform: template
-    name: "Protection: (Safety Automation)"
-    id: factory_mode_bypass
+    name: "Protection: (battery safety automation)"
+    id: protection_enabled
     icon: "mdi:factory"
     optimistic: true
-    # 1. TRIGGER FOR TURNING PROTECTION OFF (Bypass Mode Active)
+    # TRIGGER FOR TURNING PROTECTION ON (Bypass Mode Deactivated)
     on_turn_on:
       then:
         - lambda: !lambda |-
+            // drop any timers and modes
+            id(cooldown_rest_timer).stop();
+            id(battery_in_rest_period) = false;
+            id(permanent_shutdown_active) = false;        
+
+            add_to_history(id(sntp_time), id(protection_history_sensor), "✅ Protection Enabled");
+
             char msg_buffer[512];
             snprintf(msg_buffer, sizeof(msg_buffer), 
               "✅ Protection Enabled: Battery is under control");
-
-            add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
-
             std::string token = "$TELEGRAM_BOT_TOKEN";
             log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
 
-            ESP_LOGI("safety", "Bypass released. Forcing live safety evaluation check.");
+            ESP_LOGW("safety", "Protection activated.");
 
-    # 2. TRIGGER FOR TURNING PROTECTION BACK ON (Bypass Mode Deactivated)
+    # TRIGGER FOR TURNING PROTECTION OFF (Bypass Mode Activated)
     on_turn_off:
       then:
         - lambda: !lambda |-
-            // Stop any running timers or lock states immediately
+            // drop any timers and modes
             id(cooldown_rest_timer).stop();
             id(battery_in_rest_period) = false;
             id(permanent_shutdown_active) = false;
             
+            add_to_history(id(sntp_time), id(protection_history_sensor), "⚠️ Protection Disabled");
+            
             char msg_buffer[512];
             snprintf(msg_buffer, sizeof(msg_buffer),
-            "⚠️ Protection Disabled: Battery is out of control");
-            
-            add_to_history(id(sntp_time), id(protection_history_sensor), msg_buffer);
-            
+              "⚠️ Protection Disabled: Battery is out of control");            
             std::string token = "$TELEGRAM_BOT_TOKEN";
             log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+            
+            ESP_LOGW("safety", "Protection deactivated.");
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
@@ -728,6 +731,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 15207
+    id: inverter_pv_charger_current
     name: "Inverter PV Charger Current"
     register_type: holding
     unit_of_measurement: "A"
@@ -958,6 +962,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: must_inverter
     address: 25211
+    id: inverter_grid_charger_current
     name: "Inverter Grid Current"
     register_type: holding
     unit_of_measurement: "A"
@@ -1743,6 +1748,27 @@ sensor:
       - throttle: 60s
       - multiply: 0.001
 
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 20004
+    register_type: holding
+    id: inverter_hardware_version_raw
+    internal: true
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 20005
+    register_type: holding
+    id: inverter_software_version_raw
+    internal: true
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_super_slow
+    address: 20006
+    register_type: holding
+    id: inverter_protocol_version_raw
+    internal: true
+
 text_sensor:
   - platform: template
     name: "Protection: history (last 10)"
@@ -1750,39 +1776,31 @@ text_sensor:
     icon: "mdi:history"
 
   - platform: template
-    name: "Info: Must|JK BMS version"
-    id: info_configuration_version
-    update_interval: never
-    lambda: |-
-      return format_version(10103);
-
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    address: 20004
-    register_type: holding
     name: "Info: Inverter Hardware version"
     id: inverter_hardware_version
     lambda: |-
-      return format_version(std::stoi(x));
+      if (std::isnan(id(inverter_hardware_version_raw).state)) {
+        return {"Initializing..."};
+      }
+      return format_version(id(inverter_hardware_version_raw).state);
 
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    address: 20005
-    register_type: holding
+  - platform: template
     name: "Info: Inverter Software version"
     id: inverter_software_version
     lambda: |-
-      return format_version(std::stoi(x));
+      if (std::isnan(id(inverter_software_version_raw).state)) {
+        return {"Initializing..."};
+      }
+      return format_version(id(inverter_software_version_raw).state);
 
-  - platform: modbus_controller
-    modbus_controller_id: must_inverter_super_slow
-    id: inverter_protocol_version
-    address: 20005
-    register_type: holding
+  - platform: template
     name: "Info: Inverter Communication Protocol version"
-    icon: "mdi:code-braces"
+    id: inverter_protocol_version
     lambda: |-
-      return format_version(std::stoi(x));
+      if (std::isnan(id(inverter_protocol_version_raw).state)) {
+        return {"Initializing..."};
+      }
+      return format_version(id(inverter_protocol_version_raw).state);
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_slow
@@ -2726,9 +2744,19 @@ script:
           condition:
             lambda: |-
               set_led_no_protection();
-              if (id(factory_mode_bypass).state) {
+              if (!id(protection_enabled).state) {              
+                ESP_LOGI("safety", "Protection is OFF. Factory bypass. Skipping...");
                 return false;
-              }              
+              }   
+              if (id(permanent_shutdown_active)) {
+                ESP_LOGI("safety", "Permanent shutdown. Skipping...");
+                stop_led_blinking();
+                return false;
+              }
+              if (id(battery_in_rest_period)) {
+                ESP_LOGI("safety", "Battery is having a rest. Skipping...");
+                return false;
+              }            
               // Added safety checking to prevent NaN errors on the new threshold sensors
               if (std::isnan(id(delta_cell_voltage).state) ||
                   std::isnan(id(input_delta_trigger_threshold).state) ||
@@ -2736,20 +2764,21 @@ script:
                   std::isnan(id(inverter_charger_current).state) ||
                   std::isnan(id(max_cell_voltage).state) ||
                   std::isnan(id(bms_battery_voltage).state)) {
+                ESP_LOGI("safety", "Metrics are unavailable. Skipping...");
                 return false;
               }
-              // Lock down execution completely if a permanent low-current shutdown was flagged
-              if (id(permanent_shutdown_active)) {
-                stop_led_blinking();
-                return false;
-              }
+              set_led_under_protection();        
               return true;
           then:
             - lambda: |-
                 float cell_delta = id(delta_cell_voltage).state;
-                float trigger_v = id(input_delta_trigger_threshold).state;
-                float active_current = id(inverter_charger_current).state;
-                
+                float trigger_v = id(input_delta_trigger_threshold).state;            
+                float active_current = id(inverter_grid_charger_current).state + id(inverter_pv_charger_current).state; 
+                // float active_current = id(inverter_charger_current).state;
+                if(active_current < 0.1) {
+                  ESP_LOGI("safety", "Battery is not charging. Skipping...");
+                  return;
+                }
                 int bad_cell_num = (int)id(max_voltage_cell).state;
                 float bad_cell_v = id(max_cell_voltage).state;
                 float max_allowed_cell_v = id(input_max_cell_voltage).state;
@@ -2764,97 +2793,92 @@ script:
                 float hysteresis_pack = id(input_hysteresis_pack).state;
                 float hysteresis_delta = id(input_hysteresis_delta).state;
 
-                // 1. EVALUATE TURN-ON TRIGGER (Instant engagement on any violation)
+                // EVALUATE TURN-ON TRIGGER (Instant engagement on any violation)
                 bool trigger_intervention = (cell_delta >= trigger_v) || 
                                             (bad_cell_v >= max_allowed_cell_v) || 
                                             (total_batt_v >= max_allowed_batt_v);
 
                 if (trigger_intervention) {
+                  ESP_LOGI("safety", "Protection triggered.");                  
+                  char reason_buffer[128];
+  
+                  if (bad_cell_v >= max_allowed_cell_v) {
+                    snprintf(reason_buffer, sizeof(reason_buffer), "Protection: Cell #%d Voltage (>= %.3f V)", bad_cell_num, max_allowed_cell_v);
+                  } else if (total_batt_v >= max_allowed_batt_v) {
+                    snprintf(reason_buffer, sizeof(reason_buffer), "Protection: Battery Voltage (>= %.2f V)", max_allowed_batt_v);
+                  } else {
+                    snprintf(reason_buffer, sizeof(reason_buffer), "Protection: Delta Voltage (>= %.3f V)", trigger_v);
+                  }
+  
+                  add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);                  
+                  if (active_current < 2.0f) {                    
+                    // Charging current has already been small moreover triggers are active
+                    id(permanent_shutdown_active) = true;
+                    stop_led_blinking();
                 
-                  if (!id(battery_in_rest_period)) {
-                    char reason_buffer[128];
-
-                    if (bad_cell_v >= max_allowed_cell_v) {
-                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Max Cell #%d Voltage Limit (>= %.3f V)", bad_cell_num, max_allowed_cell_v);
-                    } else if (total_batt_v > max_allowed_batt_v) {
-                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Pack Battery Voltage Limit (>= %.2f V)", max_allowed_batt_v);
-                    } else {
-                      snprintf(reason_buffer, sizeof(reason_buffer), "BMS Cell Delta Threshold Exceeded (>= %.3f V)", trigger_v);
-                    }
-                
-                    add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
-
-                    if (active_current < 2.0f) {
-                      // Charging current has already been less than 2A      
-                      snprintf(msg_buffer, sizeof(msg_buffer), 
-                        "🚨 *CRITICAL: PERMANENT SHUTDOWN*\\n"
-                        "Battery is saturated (Current < 2A with High Cell/Delta/Pack Max).\\n"
-                        "Reason: %s\\n\\n"
-                        "📈 *Metrics:*\\n"
-                        "• Cell Delta: %.3f V\\n"
-                        "• Current: %.1f A\\n"
-                        "• Battery Voltage: %.2f V\\n"
-                        "• *Bad Cell: #%d (%.3f V)*\\n\\n"
-                        "Charging stopped completely until manual intervention.", 
-                        reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
-                        add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
-                
-                      std::string token = "$TELEGRAM_BOT_TOKEN";
-                      log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
-                      stop_led_blinking();
-                
-                      id(permanent_shutdown_active) = true;
-                
-                      auto call = id(inverter_charger_current).make_call();
-                      call.set_value(1.0f); // Forces the inverter to its absolute lowest possible state
-                      call.perform();
-                      return;
-                    }
-                    set_led_limiting_current();
-                    // Charging current is greater than 2A, go to dynamic rest 15 min                  
-                    snprintf(msg_buffer, sizeof(msg_buffer), 
-                      "⚠️ *WARNING: DYNAMIC RECOVERY*\\n"
-                      "Threshold breach detected. Dropping current for a 15m rest.\\n"
+                    snprintf(msg_buffer, sizeof(msg_buffer),
+                      "🚨 *CRITICAL: PERMANENT SHUTDOWN*\\n"
+                      "Battery is saturated (Current < 2A with High Cell/Delta/Pack Max).\\n"
                       "Reason: %s\\n\\n"
                       "📈 *Metrics:*\\n"
                       "• Cell Delta: %.3f V\\n"
-                      "• Current Before: %.1f A\\n"
-                      "• Pack Voltage: %.2f V\\n"
-                      "• *Highest Cell: #%d (%.3f V)*", 
+                      "• Current: %.1f A\\n"
+                      "• Battery Voltage: %.2f V\\n"
+                      "• *Bad Cell: #%d (%.3f V)*\\n\\n"
+                      "Charging stopped completely for 1 hour.",
                       reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
-                    add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);                
-                
-                    std::string token = "$TELEGRAM_BOT_TOKEN";                    
-                    log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
-
-                    id(battery_in_rest_period) = true;
-                
-                    auto call = id(inverter_charger_current).make_call();
-                    call.set_value(1.0f);
-                    call.perform();
-
+                    std::string token = "$TELEGRAM_BOT_TOKEN";
+                    log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));              
+                  
                     id(cooldown_rest_timer).execute();
+                    return;
                   }
+                  
+                  // Charging current is greater than 2A, go to dynamic rest 15 min
+                  snprintf(msg_buffer, sizeof(msg_buffer),
+                    "⚠️ *WARNING: DYNAMIC RECOVERY*\\n"
+                    "Threshold breach detected. Dropping current for a 15m rest.\\n"
+                    "Reason: %s\\n\\n"
+                    "📈 *Metrics:*\\n"
+                    "• Cell Delta: %.3f V\\n"
+                    "• Current Before: %.1f A\\n"
+                    "• Pack Voltage: %.2f V\\n"
+                    "• *Highest Cell: #%d (%.3f V)*",
+                    reason_buffer, cell_delta, active_current, total_batt_v, bad_cell_num, bad_cell_v);
+                  add_to_history(id(sntp_time), id(protection_history_sensor), reason_buffer);
+                  
+                  std::string token = "$TELEGRAM_BOT_TOKEN";
+                  log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
+                  
+                  id(battery_in_rest_period) = true;                  
+                  auto call = id(inverter_charger_current).make_call();
+                  call.set_value(1.0f);
+                  call.perform();
+                  id(cooldown_rest_timer).execute();
                   return;
-                }
-                
-                // 2. EVALUATE TURN-OFF TRIGGER (Must drop below threshold minus dynamic hysteresis variables)
-                else if (id(battery_in_rest_period)) {                
+                }                              
+                if (id(battery_in_rest_period)) {
+                  // EVALUATE TURN-OFF TRIGGER (Must drop below threshold minus dynamic hysteresis variables)
                   bool safe_to_release = (bad_cell_v <= (max_allowed_cell_v - hysteresis_cell)) &&
                                          (total_batt_v <= (max_allowed_batt_v - hysteresis_pack)) &&
                                          (cell_delta <= (trigger_v - hysteresis_delta));
 
                   if (safe_to_release) {
                     set_led_under_protection();
-                    ESP_LOGI("safety", "Metrics dropped safely below dynamic hysteresis zones. Ending rest recovery period.");
-                
-                    id(cooldown_rest_timer).stop();
-                    add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Safe levels restored. Protection cleared.");
+                    ESP_LOGW("safety", "Metrics dropped safely below dynamic hysteresis zones. Ending rest recovery period.");
+                                    
+                    //!!!!!!!!!!!!!!!!!! return current to previous value 'inverter_charger_current'
+                    auto call = id(inverter_charger_current).make_call();
+                    call.set_value(id(inverter_charger_current).state);
+                    call.perform();
+                    add_to_history(id(sntp_time), id(protection_history_sensor), "Protection: Ready to charge");
                     id(battery_in_rest_period) = false;
+                    id(cooldown_rest_timer).stop();
                     return;
                   }
                   stop_led_blinking();
                 }
+                ESP_LOGI("safety", "Waining...");
 
   # COOLDOWN COUNTDOWN TIMER
   - id: cooldown_rest_timer
@@ -2862,7 +2886,6 @@ script:
     then:
       - delay: 15min
       - lambda: |-
-          ESP_LOGI("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
+          ESP_LOGW("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
           add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Battery is under protection");
           id(battery_in_rest_period) = false;
-          id(evaluate_charging_safety).execute();
