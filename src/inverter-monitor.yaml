@@ -2824,7 +2824,7 @@ script:
                   char reason_buffer[128];
   
                   if (bad_cell_v >= max_allowed_cell_v) {
-                    set_selector(id(protection_status), "Cell Overvoltage"
+                    set_selector(id(protection_status), "Cell Overvoltage");
                     snprintf(reason_buffer, sizeof(reason_buffer), "Protection: Cell #%d Voltage (>= %.3f V)", bad_cell_num, max_allowed_cell_v);
                   } else if (total_batt_v >= max_allowed_batt_v) {
                     set_selector(id(protection_status), "Battery Overvoltage");
