@@ -147,7 +147,9 @@ modbus_controller:
 
 output:
   - platform: ledc      # Change this to 'esp8266_pwm' if you use an older ESP8266
-    pin: GPIO2
+    pin:
+      number: GPIO2
+      ignore_strapping_warning: true
     id: led_pwm_hardware
 
 time:
@@ -223,6 +225,8 @@ globals:
     type: float
     restore_value: true
     initial_value: '95.0'
+  - id: initial_charging_current
+    type: float
   - id: battery_in_rest_period
     type: bool
     restore_value: no
@@ -2313,6 +2317,20 @@ select:
     load_config_preset:
       name: "Risky! BMS Load Config Preset"
 
+  - platform: template
+    name: "Protection: Status"
+    id: protection_status
+    optimistic: true
+    options:
+      - "Deactivated"
+      - "Idle"
+      - "Resting"
+      - "Cell Overvoltage"
+      - "Battery Overvoltage"
+      - "Delta exceeded"
+      - "Stopped"
+    initial_option: "Idle"
+
 number:
   - platform: template
     name: "Protection: Hysteresis for Cell Voltage"
@@ -2749,11 +2767,13 @@ script:
                 return false;
               }   
               if (id(permanent_shutdown_active)) {
+                set_selector(id(protection_status), "Deactivated");
                 ESP_LOGI("safety", "Permanent shutdown. Skipping...");
                 stop_led_blinking();
                 return false;
               }
               if (id(battery_in_rest_period)) {
+                set_selector(id(protection_status), "Resting");
                 ESP_LOGI("safety", "Battery is having a rest. Skipping...");
                 return false;
               }            
@@ -2765,6 +2785,7 @@ script:
                   std::isnan(id(max_cell_voltage).state) ||
                   std::isnan(id(bms_battery_voltage).state)) {
                 ESP_LOGI("safety", "Metrics are unavailable. Skipping...");
+                set_selector(id(protection_status), "Idle");
                 return false;
               }
               set_led_under_protection();        
@@ -2773,9 +2794,9 @@ script:
             - lambda: |-
                 float cell_delta = id(delta_cell_voltage).state;
                 float trigger_v = id(input_delta_trigger_threshold).state;            
-                float active_current = id(inverter_grid_charger_current).state + id(inverter_pv_charger_current).state; 
-                // float active_current = id(inverter_charger_current).state;
+                float active_current = id(inverter_grid_charger_current).state + id(inverter_pv_charger_current).state;               
                 if(active_current < 0.1) {
+                  set_selector(id(protection_status), "Idle");
                   ESP_LOGI("safety", "Battery is not charging. Skipping...");
                   return;
                 }
@@ -2803,10 +2824,13 @@ script:
                   char reason_buffer[128];
   
                   if (bad_cell_v >= max_allowed_cell_v) {
+                    set_selector(id(protection_status), "Cell Overvoltage");
                     snprintf(reason_buffer, sizeof(reason_buffer), "Protection: Cell #%d Voltage (>= %.3f V)", bad_cell_num, max_allowed_cell_v);
                   } else if (total_batt_v >= max_allowed_batt_v) {
+                    set_selector(id(protection_status), "Battery Overvoltage");
                     snprintf(reason_buffer, sizeof(reason_buffer), "Protection: Battery Voltage (>= %.2f V)", max_allowed_batt_v);
                   } else {
+                    set_selector(id(protection_status), "Delta exceeded");
                     snprintf(reason_buffer, sizeof(reason_buffer), "Protection: Delta Voltage (>= %.3f V)", trigger_v);
                   }
   
@@ -2815,6 +2839,7 @@ script:
                     // Charging current has already been small moreover triggers are active
                     id(permanent_shutdown_active) = true;
                     stop_led_blinking();
+                    set_selector(id(protection_status), "Idle");
                 
                     snprintf(msg_buffer, sizeof(msg_buffer),
                       "🚨 *CRITICAL: PERMANENT SHUTDOWN*\\n"
@@ -2850,7 +2875,8 @@ script:
                   std::string token = "$TELEGRAM_BOT_TOKEN";
                   log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
                   
-                  id(battery_in_rest_period) = true;                  
+                  id(battery_in_rest_period) = true;
+                  initial_charging_current->value() = id(inverter_charger_current).state;
                   auto call = id(inverter_charger_current).make_call();
                   call.set_value(1.0f);
                   call.perform();
@@ -2867,10 +2893,11 @@ script:
                     set_led_under_protection();
                     ESP_LOGW("safety", "Metrics dropped safely below dynamic hysteresis zones. Ending rest recovery period.");
                                     
-                    //!!!!!!!!!!!!!!!!!! return current to previous value 'inverter_charger_current'
-                    auto call = id(inverter_charger_current).make_call();
-                    call.set_value(id(inverter_charger_current).state);
-                    call.perform();
+                    if (id(inverter_charger_current).state != id(initial_charging_current)) {
+                      auto call = id(inverter_charger_current).make_call();
+                      call.set_value(id(initial_charging_current));
+                      call.perform();
+                    }
                     add_to_history(id(sntp_time), id(protection_history_sensor), "Protection: Ready to charge");
                     id(battery_in_rest_period) = false;
                     id(cooldown_rest_timer).stop();
@@ -2889,3 +2916,4 @@ script:
           ESP_LOGW("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
           add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Battery is under protection");
           id(battery_in_rest_period) = false;
+          set_selector(id(protection_status), "Idle");

@@ -7,6 +7,12 @@
 #include <Arduino.h>
 #endif
 
+void set_selector(esphome::select::Select* selector, const std::string& option) {
+    if (selector != nullptr) {
+        selector->make_call().set_option(option).perform();
+    }
+}
+
 // ==========================================
 // VERSION FORMATTING LOGIC
 // ==========================================
