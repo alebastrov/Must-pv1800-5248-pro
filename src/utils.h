@@ -7,11 +7,9 @@
 #include <Arduino.h>
 #endif
 
-void set_selector(esphome::template_::TemplateSelect* selector, const std::string& option) {
+void set_selector(esphome::select::Select* selector, const std::string& option) {
     if (selector != nullptr) {
-        auto call = selector->make_call();
-        call.set_option(option);
-        call.perform();
+        selector->make_call().set_option(option).perform();
     }
 }
 

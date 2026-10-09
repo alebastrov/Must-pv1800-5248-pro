@@ -2876,7 +2876,7 @@ script:
                   log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
                   
                   id(battery_in_rest_period) = true;
-                  initial_charging_current = id(inverter_charger_current).state;
+                  initial_charging_current->value() = id(inverter_charger_current).state;
                   auto call = id(inverter_charger_current).make_call();
                   call.set_value(1.0f);
                   call.perform();
@@ -2893,9 +2893,9 @@ script:
                     set_led_under_protection();
                     ESP_LOGW("safety", "Metrics dropped safely below dynamic hysteresis zones. Ending rest recovery period.");
                                     
-                    if (id(inverter_charger_current).state != initial_charging_current) {
+                    if (id(inverter_charger_current).state != id(initial_charging_current)) {
                       auto call = id(inverter_charger_current).make_call();
-                      call.set_value(initial_charging_current);
+                      call.set_value(id(initial_charging_current));
                       call.perform();
                     }
                     add_to_history(id(sntp_time), id(protection_history_sensor), "Protection: Ready to charge");
