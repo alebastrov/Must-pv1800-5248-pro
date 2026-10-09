@@ -223,6 +223,8 @@ globals:
     type: float
     restore_value: true
     initial_value: '95.0'
+  - id: initial_charging_current
+    type: float
   - id: battery_in_rest_period
     type: bool
     restore_value: no
@@ -2314,7 +2316,7 @@ select:
       name: "Risky! BMS Load Config Preset"
 
   - platform: template
-    name: "Protection Status"
+    name: "Protection: Status"
     id: protection_status
     optimistic: true
     options:
@@ -2790,8 +2792,7 @@ script:
             - lambda: |-
                 float cell_delta = id(delta_cell_voltage).state;
                 float trigger_v = id(input_delta_trigger_threshold).state;            
-                float active_current = id(inverter_grid_charger_current).state + id(inverter_pv_charger_current).state; 
-                // float active_current = id(inverter_charger_current).state;
+                float active_current = id(inverter_grid_charger_current).state + id(inverter_pv_charger_current).state;               
                 if(active_current < 0.1) {
                   set_selector(id(protection_status), "Idle");
                   ESP_LOGI("safety", "Battery is not charging. Skipping...");
@@ -2872,7 +2873,8 @@ script:
                   std::string token = "$TELEGRAM_BOT_TOKEN";
                   log_and_send_tg("safety", msg_buffer, token, id(bms_http_client));
                   
-                  id(battery_in_rest_period) = true;                  
+                  id(battery_in_rest_period) = true;
+                  initial_charging_current = id(inverter_charger_current).state;
                   auto call = id(inverter_charger_current).make_call();
                   call.set_value(1.0f);
                   call.perform();
@@ -2889,10 +2891,11 @@ script:
                     set_led_under_protection();
                     ESP_LOGW("safety", "Metrics dropped safely below dynamic hysteresis zones. Ending rest recovery period.");
                                     
-                    //!!!!!!!!!!!!!!!!!! return current to previous value 'inverter_charger_current'
-                    //auto call = id(inverter_charger_current).make_call();
-                    //call.set_value(id(inverter_charger_current).state);
-                    //call.perform();
+                    if (id(inverter_charger_current).state != initial_charging_current) {
+                      auto call = id(inverter_charger_current).make_call();
+                      call.set_value(initial_charging_current);
+                      call.perform();
+                    }
                     add_to_history(id(sntp_time), id(protection_history_sensor), "Protection: Ready to charge");
                     id(battery_in_rest_period) = false;
                     id(cooldown_rest_timer).stop();
