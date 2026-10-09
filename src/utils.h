@@ -7,6 +7,14 @@
 #include <Arduino.h>
 #endif
 
+void set_selector(esphome::template_::TemplateSelect* selector, const std::string& option) {
+    if (selector != nullptr) {
+        auto call = selector->make_call();
+        call.set_option(option);
+        call.perform();
+    }
+}
+
 // ==========================================
 // VERSION FORMATTING LOGIC
 // ==========================================
