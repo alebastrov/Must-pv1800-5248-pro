@@ -28,6 +28,10 @@ esphome:
     - sender.h
     - history.h
     - utils.h
+  platformio_options:
+    build_flags:
+      - -DCONFIG_ARDUINO_LOOP_STACK_SIZE=16384
+      - -DCONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
   on_boot:
     priority: 800.0 # High priority runs right after hardware pins mount
     then:
@@ -37,7 +41,7 @@ esphome:
             App.register_component_(my_led);
           }
       - delay: 1s
-      - switch.turn_on: protection_enabled
+      - switch.turn_off: protection_enabled
 
 esp32:
   variant: ESP32
@@ -57,10 +61,19 @@ api:
   encryption:
     key: "QH6ezYpMxSAzm8qHo1hbwjpCY1EM/hKUbNftqaC3vwE="
   reboot_timeout: 15min # Prevents the ESP32 from rebooting if Wi-Fi glitches briefly
+  on_client_connected:
+    - esp32_ble_tracker.start_scan:
+        continuous: true
+
+  on_client_disconnected:
+    - esp32_ble_tracker.stop_scan:
 
 ota:
-  - platform: esphome
-    encryption:
+  platform: esphome
+  encryption:
+  on_begin:
+    then:
+      - switch.turn_off: ble_client_switch0
 
 preferences:
   flash_write_interval: 60min
@@ -81,6 +94,9 @@ logger:
   logs:
     modbus: WARN
     modbus_controller: WARN
+    esp32_ble_tracker: WARN
+    esp32_ble_client: WARN
+    jk_bms_ble: WARN
 
 mdns:
   disabled: true       # Disables network name caching, saving heap RAM
@@ -92,8 +108,8 @@ esp32_ble:
 esp32_ble_tracker:
   scan_parameters:
     duration: 5s
-    interval: 150ms
-    window: 30ms
+    interval: 1150ms
+    window: 1130ms
     active: false
 
 ble_client:
@@ -110,6 +126,7 @@ jk_bms_ble:
 web_server:
   port: 80
   local: true
+  log: false
 
 uart:
   - id: uart_inverter
@@ -1372,14 +1389,14 @@ sensor:
     accuracy_decimals: 2
     update_interval: 10s # Fallback timeframe to recalculate safely
     lambda: |-
-      if (isnan(id(local_capacity_remaining).state) || isnan(id(local_full_charge_capacity).state)) {
+      if (isnan(id(local_capacity_remaining).state) || isnan(id(total_battery_capacity).state)) {
         if (!isnan(id(state_of_charge).state)) {
           return id(state_of_charge).state;
         }
         return {}; // Return absolutely nothing (prevents "nan %" log spam)
       }
-      if (id(local_capacity_remaining).state > 0 && id(local_full_charge_capacity).state > 0) {
-        return (id(local_capacity_remaining).state / id(local_full_charge_capacity).state) * 100.0;
+      if (id(local_capacity_remaining).state > 0 && id(total_battery_capacity).state > 0) {
+        return (id(local_capacity_remaining).state / id(total_battery_capacity).state) * 100.0;
       }
       if (!std::isnan(id(state_of_charge).state)) {
         return id(state_of_charge).state; 
@@ -1706,21 +1723,13 @@ sensor:
       unit_of_measurement: "%"
       icon: mdi:state-machine
       filters:
-        - throttle: 600s
+        - throttle: 30s
     capacity_remaining:
       id: local_capacity_remaining
       name: "BMS capacity remaining"
       unit_of_measurement: "Ah"
       icon: mdi:battery-unknown
       device_class: energy
-    full_charge_capacity:
-      id: local_full_charge_capacity
-      name: "BMS full charge capacity"
-      unit_of_measurement: "Ah"
-      device_class: energy
-      icon: mdi:battery-check
-      filters:
-        - throttle: 600s
     charging_cycles:
       name: "BMS charging cycles"
       icon: mdi:recycle-variant
@@ -2704,12 +2713,11 @@ number:
       step: 0.001
     cell_count:
       id: cell_count
-      device_class: voltage
-      unit_of_measurement: "V"
       name: "BMS cell count"
     total_battery_capacity:
       name: "BMS total battery capacity"
       unit_of_measurement: "Ah"
+      id: total_battery_capacity
       device_class: energy
     cell_voltage_overvoltage_protection:
       name: "BMS cell voltage overvoltage protection"
@@ -2825,8 +2833,8 @@ number:
       name: "BMS cell request float voltage"
       unit_of_measurement: "V"
       device_class: voltage
-      min_value: 3.34
-      max_value: 3.58
+      min_value: 3.3
+      max_value: 3.5
       step: 0.005
     cell_request_charge_voltage_time:
       name: "BMS cell request charge voltage time"
@@ -2950,7 +2958,7 @@ number:
       unit_of_measurement: "°C"
       device_class: temperature
       icon: mdi:temperature-celsius
-      min_value: -20
+      min_value: 0
       max_value: 20
       step: 2
     heating_stop_temperature:

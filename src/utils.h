@@ -85,7 +85,7 @@ class LedBlinkController : public esphome::Component {
 // Global accessor reference variable
 inline LedBlinkController* my_led = nullptr;
 
-inline void set_led_under_protection() { if(my_led) my_led->set_pattern("prot", 100, 900); }
+inline void set_led_under_protection() { if(my_led) my_led->set_pattern("prot", 100, 1900); }
 inline void set_led_limiting_current() { if(my_led) my_led->set_pattern("lim", 350, 150); }
-inline void set_led_no_protection()    { if(my_led) my_led->set_pattern("none", 100, 1900); }
+inline void set_led_no_protection()    { if(my_led) my_led->set_pattern("none", 100, 4900); }
 inline void stop_led_blinking()        { if(my_led) my_led->stop(); }
