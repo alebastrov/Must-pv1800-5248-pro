@@ -1978,15 +1978,14 @@ text_sensor:
       // Format the string dynamically based on the current timeframe
       char buffer[32];
       if (years > 0) {
-        sprintf(buffer, "%dy %dm %dd %dh", years, months, days, hours);
+        sprintf(buffer, "%uy %um %ud %uh", years, months, days, hours);
       } else if (months > 0) {
-        sprintf(buffer, "%dm %dd %dh", months, days, hours);
+        sprintf(buffer, "%um %ud %uh", months, days, hours);
       } else if (days > 0) {
-        sprintf(buffer, "%dd %dh", days, hours);
+        sprintf(buffer, "%ud %uh", days, hours);
       } else {
-        sprintf(buffer, "%dh", hours);
+        sprintf(buffer, "%uh", hours);
       }
-
       return {buffer};
   - platform: template
     name: "Protection: history (last 10)"
