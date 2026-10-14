@@ -1,0 +1,92 @@
+esphome:
+  name: airport-split-flap-16x32
+  platform: ESP32
+  board: esp32dev
+
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+display:
+  - platform: st7735
+    id: lcd_display
+    cs_pin: GPIO5
+    dc_pin: GPIO16
+    rst_pin: GPIO17
+    model: INITR_BLACKTAB
+    rotation: 90°          # Landscape mode: Width = 160px, Height = 128px
+    update_interval: 16ms  # ~60 FPS rapid panel drawing
+    pages:
+      - id: main_board
+        render: !lambda |-
+          id(lcd_display).fill(Color::BLACK);
+          
+          int char_w = 4;   // 4 pixels text width + 1 pixel padding = 5px total space
+          int char_h = 7;   // 7 pixels height + 1 pixel padding = 8px total space
+          
+          for (int r = 0; r < 16; r++) {
+            for (int c = 0; c < 32; c++) {
+              int x = c * 5;
+              int y = r * 8;
+          
+              // Draw a tiny dark mechanical background panel for each character flap
+              id(lcd_display).filled_rectangle(x, y, char_w, char_h, Color(0x11, 0x11, 0x11));
+          
+              // Draw the vintage horizontal split line across the flap
+              id(lcd_display).horizontal_line(x, y + 3, char_w, Color(0x33, 0x33, 0x33));
+          
+              char current_char = id(board_matrix)[r][c];
+              if (current_char == 0) current_char = ' ';
+          
+              if (current_char != ' ') {
+                id(lcd_display).printf(x, y, id(flap_font), Color::WHITE, "%c", current_char);
+              }
+            }
+          }
+
+font:
+  - file: "gfonts://Pixelify Sans"
+    id: flap_font
+    size: 6 # Micro-scaled variant to ensure it strictly respects the 5x7 boundaries
+
+globals:
+  # 16 Rows by 32 Columns Grid Arrays
+  - id: board_matrix
+    type: char[16][32]
+    initial_value: '{0}'
+
+  - id: target_matrix
+    type: char[16][32]
+    initial_value: '{0}'
+
+interval:
+  # The mechanical engine cycles individual flaps sequentially every 30ms
+  - interval: 30ms
+    then:
+      - lambda: |-
+          const char* set = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:>";
+          int set_len = strlen(set);
+          bool needs_redraw = false;
+
+          for (int r = 0; r < 16; r++) {
+            for (int c = 0; c < 32; c++) {
+              char current = id(board_matrix)[r][c];
+              char target = id(target_matrix)[r][c];
+
+              if (current == 0) current = ' ';
+              if (target == 0) target = ' ';
+
+              if (current != target) {
+                int idx = 0;
+                for (int i = 0; i < set_len; i++) {
+                  if (set[i] == current) { idx = i; break; }
+                }
+                id(board_matrix)[r][c] = set[(idx + 1) % set_len];
+                needs_redraw = true;
+              }
+            }
+          }
+          
+          if (needs_redraw) {
+            id(lcd_display).update();
+          }
