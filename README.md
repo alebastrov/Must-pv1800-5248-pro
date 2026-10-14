@@ -1,6 +1,7 @@
 # Must-pv1800-5248-pro
 
 inspired by:
+    https://github.com/syssi/esphome-jk-bms.git
     https://github.com/taHC81/MUST-ESPhome
     https://github.com/vladyspavlov/esphome-must-inverter
 
@@ -29,5 +30,11 @@ The feature has 6 setting and also may be completely off
 if inverter charges the battery all 3 rules are taken into account, if any of them fails then charging is being stopped for 15 minutes
 After timeout is passed the inverter will get the same charging current as it was before protection event.
 
-
+secrets.yaml should contain next definitions:
+wifi_ssid: "WiFi network name"
+wifi_password: "WiFi password"
+jk_bms_mac_address: <JK_BMS mac address in format XX:XX:XX:XX:XX>
+esp_device_pv_1800_inverter_api_key: <API key of your device>
+my_telegram_token: <token to your telegram channel>
+access_point_password: "Access Point esp device password"
 

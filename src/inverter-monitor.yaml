@@ -4,9 +4,12 @@
 substitutions:
   mac_address: !secret jk_bms_mac_address
   inverter_id: inverter1
+  TELEGRAM_BOT_TOKEN: !secret my_telegram_token
   updates_inverter: 2000ms
   updates_bms: 2000ms
-  TELEGRAM_BOT_TOKEN: !secret my_telegram_token
+  jk_bms_protocol_version: JK02_32S
+  inverter_modbus_address: 0x04
+  flash_write_interval: 60min
 
 external_components:
   # - source:
@@ -40,7 +43,8 @@ esphome:
             my_led = new LedBlinkController(id(led_pwm_hardware));
             App.register_component_(my_led);
           }
-      - delay: 1s
+          set_led_boot_ok();
+      - delay: 10s
       - switch.turn_off: protection_enabled
 
 esp32:
@@ -59,7 +63,7 @@ esp32:
 
 api:
   encryption:
-    key: "QH6ezYpMxSAzm8qHo1hbwjpCY1EM/hKUbNftqaC3vwE="
+    key: !secret esp_device_pv_1800_inverter_api_key
   reboot_timeout: 15min # Prevents the ESP32 from rebooting if Wi-Fi glitches briefly
   on_client_connected:
     - esp32_ble_tracker.start_scan:
@@ -76,7 +80,7 @@ ota:
       - switch.turn_off: ble_client_switch0
 
 preferences:
-  flash_write_interval: 60min
+  flash_write_interval: ${flash_write_interval}
 
 wifi:
   ssid: !secret wifi_ssid
@@ -85,7 +89,7 @@ wifi:
 
   ap:
     ssid: "Inverter-BMS-WiFi"
-    password: "12345678"
+    password: !secret access_point_password
 
 logger:
   level: WARN
@@ -118,7 +122,7 @@ ble_client:
 
 jk_bms_ble:
   - ble_client_id: client0
-    protocol_version: JK02_32S
+    protocol_version: ${jk_bms_protocol_version}
     throttle: 2s
     id: bms0
     update_interval: ${updates_bms}
@@ -147,19 +151,19 @@ modbus:
 
 modbus_controller:
   - id: must_inverter
-    address: 0x04
+    address: ${inverter_modbus_address}
     modbus_id: modbus_0
     setup_priority: -10
     max_cmd_retries: 2
     update_interval: ${updates_inverter}
   - id: must_inverter_slow
-    address: 0x04
+    address: ${inverter_modbus_address}
     modbus_id: modbus_0
     setup_priority: -10
     max_cmd_retries: 5
     update_interval: 30s
   - id: must_inverter_super_slow
-    address: 0x04
+    address: ${inverter_modbus_address}
     modbus_id: modbus_0
     setup_priority: -10
     max_cmd_retries: 5
@@ -184,6 +188,15 @@ time:
         minutes: 0
         hours: 23
         then:
+          - lambda: |-
+              id(battery_in_rest_period) = false;
+              id(permanent_shutdown_active) = false;
+              id(cooldown_rest_timer).stop();
+
+              float charge = id(bms_daily_charge_meter).state;
+              float discharge = id(bms_daily_discharge_meter).state;
+              id(stored_bms_charge) = charge;
+              id(stored_bms_discharge) = discharge;
           - component.update: bms_battery_ratio
           - sensor.template.publish:
               id: bms_daily_charge_meter
@@ -191,10 +204,6 @@ time:
           - sensor.template.publish:
               id: bms_daily_discharge_meter
               state: 0.0
-          - lambda: |-
-              id(battery_in_rest_period) = false;
-              id(permanent_shutdown_active) = false;
-              id(cooldown_rest_timer).stop();
           - logger.log: "Global variables and daily meters have been reset at 23:00:00"
 
       # ==========================================
@@ -258,6 +267,15 @@ globals:
   - id: protection_history_list
     type: std::vector<std::string>
     initial_value: 'std::vector<std::string>()'
+
+  - id: stored_bms_charge
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
+  - id: stored_bms_discharge
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
 
 button:
   - platform: jk_bms_ble
@@ -654,8 +672,8 @@ sensor:
     accuracy_decimals: 2
     icon: "mdi:battery-heart-variant"
     lambda: |-
-      float charge = id(bms_daily_charge_meter).state;
-      float discharge = id(bms_daily_discharge_meter).state;
+      float charge = id(stored_bms_charge);
+      float discharge = id(stored_bms_discharge);
       
       if (charge > 0.0) {
         return (discharge / charge) * 100.0;
@@ -1919,7 +1937,56 @@ sensor:
       unit_of_measurement: "Hz"
       icon: mdi:airbag
 
+  - platform: uptime
+    id: uptime_seconds
+    update_interval: 60s
+
 text_sensor:
+  - platform: debug
+    device:
+      name: "Info: Device"
+    reset_reason:
+      name: "Info: Device Reset Reason"
+
+  - platform: template
+    name: "Info: Device Uptime Formatted"
+    id: uptime_formatted
+    icon: "mdi:clock-start"
+    update_interval: 60s
+    lambda: |-
+      // Get total uptime in seconds
+      uint32_t total_seconds = id(uptime_seconds).state;
+
+      // Calculate chunks
+      uint32_t seconds_in_minute = 60;
+      uint32_t seconds_in_hour   = seconds_in_minute * 60;
+      uint32_t seconds_in_day    = seconds_in_hour * 24;
+      uint32_t seconds_in_month  = seconds_in_day * 30;  // Approximated as 30 days
+      uint32_t seconds_in_year   = seconds_in_day * 365; // Approximated as 365 days
+
+      uint32_t years  = total_seconds / seconds_in_year;
+      total_seconds  %= seconds_in_year;
+
+      uint32_t months = total_seconds / seconds_in_month;
+      total_seconds  %= seconds_in_month;
+
+      uint32_t days   = total_seconds / seconds_in_day;
+      total_seconds  %= seconds_in_day;
+
+      uint32_t hours  = total_seconds / seconds_in_hour;
+
+      // Format the string dynamically based on the current timeframe
+      char buffer[32];
+      if (years > 0) {
+        sprintf(buffer, "%uy %um %ud %uh", years, months, days, hours);
+      } else if (months > 0) {
+        sprintf(buffer, "%um %ud %uh", months, days, hours);
+      } else if (days > 0) {
+        sprintf(buffer, "%ud %uh", days, hours);
+      } else {
+        sprintf(buffer, "%uh", hours);
+      }
+      return {buffer};
   - platform: template
     name: "Protection: history (last 10)"
     id: protection_history_sensor
@@ -2980,6 +3047,7 @@ number:
     max_value: 0.045
     step: 0.005
     initial_value: 0.015
+    restore_value: yes
     optimistic: true
 
   - platform: template
@@ -2992,6 +3060,7 @@ number:
     max_value: 3.65
     step: 0.005
     initial_value: 3.45
+    restore_value: yes
     optimistic: true
 
   - platform: template
@@ -3004,7 +3073,20 @@ number:
     max_value: 58.0
     step: 0.05
     initial_value: 55.0
+    restore_value: yes
     optimistic: true
+
+  - platform: template
+    name: "Protection: Battery Cooldown Duration"
+    id: battery_cooldown_duration
+    optimistic: true
+    min_value: 1
+    max_value: 120
+    step: 1
+    initial_value: 15
+    restore_value: yes
+    unit_of_measurement: "min"
+    icon: mdi:airbag
 
 interval:
   - interval: 5s
@@ -3166,7 +3248,7 @@ script:
   - id: cooldown_rest_timer
     mode: single
     then:
-      - delay: 15min
+      - delay: !lambda "return id(battery_cooldown_duration).state * 60000;"
       - lambda: |-
           ESP_LOGW("safety", "15-minute battery cooldown elapsed. Resuming normal operations.");
           add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Battery is under protection");
