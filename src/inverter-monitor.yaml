@@ -107,9 +107,6 @@ logger:
     esp32_ble_client: WARN
     jk_bms_ble: WARN
 
-pylontech_responder:
-  uart_id: uart_inverter
-
 mdns:
   disabled: true       # Disables network name caching, saving heap RAM
 
@@ -142,7 +139,7 @@ web_server:
 
 uart:
   - id: uart_inverter
-    baud_rate: 19200
+    baud_rate: 9600
     tx_pin: GPIO23
     rx_pin: GPIO22
     stop_bits: 1
@@ -163,19 +160,23 @@ modbus_controller:
     modbus_id: modbus_0
     setup_priority: -10
     max_cmd_retries: 2
-    update_interval: ${updates_inverter}
+    update_interval: never
   - id: must_inverter_slow
     address: ${inverter_modbus_address}
     modbus_id: modbus_0
     setup_priority: -10
     max_cmd_retries: 5
-    update_interval: 30s
+    update_interval: never
   - id: must_inverter_super_slow
     address: ${inverter_modbus_address}
     modbus_id: modbus_0
     setup_priority: -10
     max_cmd_retries: 5
-    update_interval: 15min # Reads only once every 15 minutes!
+    update_interval: never # Reads only once every 15 minutes!
+
+pylontech_responder:
+  modbus_id: modbus_0
+  uart_id: uart_inverter
 
 output:
   - platform: ledc      # Change this to 'esp8266_pwm' if you use an older ESP8266
@@ -1666,6 +1667,7 @@ sensor:
     current:
       name: "BMS battery current"
       unit_of_measurement: "A"
+      id: bms_battery_current
       device_class: current
       icon: mdi:current-dc
     heating_current:
@@ -1694,6 +1696,7 @@ sensor:
       icon: mdi:battery-arrow-down
     temperature_sensor_1:
       name: "BMS battery temperature sensor 1"
+      id: bms_battery_temperature1
       device_class: "temperature"
       unit_of_measurement: "°C"
       icon: mdi:temperature-celsius
@@ -1701,6 +1704,7 @@ sensor:
         - throttle: 30s
     temperature_sensor_2:
       name: "BMS battery temperature sensor 2"
+      id: bms_battery_temperature2
       device_class: "temperature"
       unit_of_measurement: "°C"
       icon: mdi:temperature-celsius
@@ -1708,6 +1712,7 @@ sensor:
         - throttle: 30s
     temperature_sensor_3:
       name: "BMS battery temperature sensor 3"
+      id: bms_battery_temperature3
       device_class: "temperature"
       unit_of_measurement: "°C"
       icon: mdi:temperature-celsius
@@ -1715,6 +1720,7 @@ sensor:
         - throttle: 30s
     temperature_sensor_4:
       name: "BMS battery temperature sensor 4"
+      id: bms_battery_temperature4
       device_class: "temperature"
       unit_of_measurement: "°C"
       icon: mdi:temperature-celsius
@@ -1722,6 +1728,7 @@ sensor:
         - throttle: 30s
     temperature_sensor_5:
       name: "BMS battery temperature sensor 5"
+      id: bms_battery_temperature5
       device_class: "temperature"
       unit_of_measurement: "°C"
       icon: mdi:temperature-celsius
@@ -1729,6 +1736,7 @@ sensor:
         - throttle: 30s
     mosfet_temperature:
       name: "BMS MOSFET temperature"
+      id: bms_mosfet_temperature
       device_class: "temperature"
       unit_of_measurement: "°C"
       icon: mdi:temperature-celsius
@@ -1744,6 +1752,7 @@ sensor:
       icon: mdi:state-machine
     state_of_health:
       name: "BMS state of health"
+      id: bms_battery_soh
       unit_of_measurement: "%"
       icon: mdi:state-machine
       filters:
@@ -3128,6 +3137,59 @@ interval:
   - interval: 5s
     then:
       - script.execute: evaluate_charging_safety
+
+#  - interval: 5s
+#    then:
+#      - lambda: |-
+#          // 1. Ensure all live telemetry sensors have valid numerical readings
+#          if (std::isnan(id(precise_soc).state) ||
+#              std::isnan(id(bms_battery_voltage).state) ||
+#              std::isnan(id(bms_battery_temperature1).state) ||
+#              std::isnan(id(bms_battery_soh).state) ||
+#              std::isnan(id(bms_battery_current).state)) {
+#            ESP_LOGW("bms_push", "Skipping inverter update: One or more base sensors are reporting NaN.");
+#            return;
+#          }
+#
+#          // 2. Gather and scale values exactly how your sensors expect them (multiply: 0.1)
+#          uint16_t current_soc  = (uint16_t)id(precise_soc).state;
+#
+#          // Scale x10 because your sensor has a 'multiply: 0.1' filter (e.g., 53.1V -> 531)
+#          uint16_t raw_voltage  = (uint16_t)(id(bms_battery_voltage).state * 10.0f);
+#
+#          // Scale x10 because your sensor has a 'multiply: 0.1' filter (e.g., -5.3A -> -53)
+#          int16_t raw_current   = (int16_t)(id(bms_battery_current).state * 10.0f);
+#
+#          // Set baseline placeholder metrics for the other registers in the block
+#          uint16_t raw_temp     = (int16_t)(id(bms_battery_temperature1).state * 10.0f);
+#          uint16_t raw_error    = 0;    // Normal (No faults)
+#          uint16_t raw_soh      = (int16_t)(id(bms_battery_soh).state);
+#
+#          // 3. Build the sequential payload data buffer (12 bytes total for 6 registers)
+#          // Sequence: Voltage (109) -> Current (110) -> Temp (111) -> Error (112) -> SOC (113) -> SOH (114)
+#          std::vector<uint8_t> payload_data = {
+#            (uint8_t)(raw_voltage >> 8), (uint8_t)(raw_voltage & 0xFF),          // Reg 109
+#            (uint8_t)((uint16_t)raw_current >> 8), (uint8_t)((uint16_t)raw_current & 0xFF), // Reg 110
+#            (uint8_t)(raw_temp >> 8), (uint8_t)(raw_temp & 0xFF),                // Reg 111
+#            (uint8_t)(raw_error >> 8), (uint8_t)(raw_error & 0xFF),              // Reg 112
+#            (uint8_t)(current_soc >> 8), (uint8_t)(current_soc & 0xFF),          // Reg 113
+#            (uint8_t)(raw_soh >> 8), (uint8_t)(raw_soh & 0xFF)                    // Reg 114
+#          };
+#
+#          // 4. Construct the standard client PDU targeting base register address 109
+#          auto pdu = esphome::modbus::helpers::create_client_pdu(
+#            esphome::modbus::FunctionCode::WRITE_MULTIPLE_REGISTERS, // 0x10
+#            109,          // Starting Register Address (109)
+#            6,            // Total number of registers to write (109 through 114)
+#            payload_data.data(),
+#            payload_data.size()
+#          );
+#
+#          // 5. Queue the frame directly down the active RS485 master wire hub
+#          id(modbus_0)->queue_pdu(${inverter_modbus_address}, pdu);
+#
+#          ESP_LOGI("bms_push", "Successfully updated Inverter BMS block: V=%d, A=%d, SOC=%d%%", raw_voltage, raw_current, current_soc);
+
 
 script:
   # MAIN EVALUATION: Controls baseline operations and manages dynamic high-delta interventions
