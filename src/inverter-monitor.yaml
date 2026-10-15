@@ -31,10 +31,11 @@ esphome:
     - sender.h
     - history.h
     - utils.h
-  platformio_options:
-    build_flags:
-      - -DCONFIG_ARDUINO_LOOP_STACK_SIZE=16384
-      - -DCONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
+  build_flags:
+    - -DCORE_DEBUG_LEVEL=0
+    - -DUSE_ESP32_VARIANT
+    - -DCONFIG_ARDUINO_LOOP_STACK_SIZE=16384
+    - -DCONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
   on_boot:
     priority: 800.0 # High priority runs right after hardware pins mount
     then:
@@ -112,8 +113,8 @@ esp32_ble:
 esp32_ble_tracker:
   scan_parameters:
     duration: 5s
-    interval: 1150ms
-    window: 1130ms
+    interval: 320ms
+    window: 130ms
     active: false
 
 ble_client:
@@ -1438,15 +1439,13 @@ sensor:
       id: max_cell_voltage
     min_voltage_cell:
       id: min_voltage_cell
-      name: "BMS min voltage cell"
+      name: "BMS min voltage cell number"
       device_class: voltage
-      unit_of_measurement: "V"
       icon: mdi:battery-charging-low
     max_voltage_cell:
       id: max_voltage_cell
-      name: "BMS max voltage cell"
+      name: "BMS max voltage cell number"
       device_class: voltage
-      unit_of_measurement: "V"
       icon: mdi:battery-charging-high
     delta_cell_voltage:
       name: "BMS delta cell voltage"
@@ -1945,8 +1944,6 @@ text_sensor:
   - platform: debug
     device:
       name: "Info: Device"
-    reset_reason:
-      name: "Info: Device Reset Reason"
 
   - platform: template
     name: "Info: Device Uptime Formatted"
@@ -1972,19 +1969,25 @@ text_sensor:
 
       uint32_t days   = total_seconds / seconds_in_day;
       total_seconds  %= seconds_in_day;
-
+  
       uint32_t hours  = total_seconds / seconds_in_hour;
+      total_seconds  %= seconds_in_hour; // Get the remaining seconds for minutes
+
+      uint32_t minutes = total_seconds / seconds_in_minute;
+      uint32_t seconds = total_seconds % seconds_in_minute;    
 
       // Format the string dynamically based on the current timeframe
       char buffer[32];
       if (years > 0) {
-        sprintf(buffer, "%uy %um %ud %uh", years, months, days, hours);
+        sprintf(buffer, "%luy %lum %lud %luh", years, months, days, hours);
       } else if (months > 0) {
-        sprintf(buffer, "%um %ud %uh", months, days, hours);
+        sprintf(buffer, "%luM %lud %luh", months, days, hours);
       } else if (days > 0) {
-        sprintf(buffer, "%ud %uh", days, hours);
+        sprintf(buffer, "%lud %luh %lum", days, hours, minutes);
+      } else if (hours > 0) {
+        sprintf(buffer, "%luh %lum", hours, minutes);
       } else {
-        sprintf(buffer, "%uh", hours);
+          sprintf(buffer, "%lum", minutes);
       }
       return {buffer};
   - platform: template
@@ -2458,6 +2461,32 @@ select:
     optionsmap:
       "Disabled": 0
       "Enabled": 1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Risky: Inverter Power"
+    id: inverter_power_enable
+    address: 20101
+    icon: mdi:power
+    optionsmap:
+      "Disabled / Off": 0
+      "Enabled / On": 1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Buzzer Alarm"
+    address: 20110
+    optionsmap:
+      "Muted / Off": 0
+      "Enabled / On": 1
+
+  - platform: modbus_controller
+    modbus_controller_id: must_inverter_slow
+    name: "Inverter Backlight"
+    address: 20112
+    optionsmap:
+      "Disabled / Off": 0
+      "Enabled / On": 1
 
   - platform: modbus_controller
     modbus_controller_id: must_inverter_super_slow
