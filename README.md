@@ -38,3 +38,5 @@ esp_device_pv_1800_inverter_api_key: <API key of your device>
 my_telegram_token: <token to your telegram channel>
 access_point_password: "Access Point esp device password"
 
+not sure about registers 102-109 (inverter got these values from bms)
+
