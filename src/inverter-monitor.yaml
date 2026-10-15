@@ -21,6 +21,10 @@ external_components:
       path: components
       #url: https://github.com/syssi/esphome-jk-bms
 
+  - source:
+      type: local
+      path: pylontech-responder-component
+
 debug:
   update_interval: 10s
 
@@ -93,15 +97,18 @@ wifi:
     password: !secret access_point_password
 
 logger:
-  level: WARN
+  level: INFO
   hardware_uart: UART0
   tx_buffer_size: 256
   logs:
-    modbus: WARN
-    modbus_controller: WARN
+    modbus: INFO
+    modbus_controller: INFO
     esp32_ble_tracker: WARN
     esp32_ble_client: WARN
     jk_bms_ble: WARN
+
+pylontech_responder:
+  uart_id: uart_inverter
 
 mdns:
   disabled: true       # Disables network name caching, saving heap RAM
