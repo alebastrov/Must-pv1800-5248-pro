@@ -24,6 +24,9 @@ external_components:
 debug:
   update_interval: 10s
 
+runtime_stats:
+  log_interval: 60s
+
 esphome:
   name: must-pv1800
   friendly_name: inverter-monitor
@@ -65,7 +68,7 @@ esp32:
 api:
   encryption:
     key: !secret esp_device_pv_1800_inverter_api_key
-  reboot_timeout: 15min # Prevents the ESP32 from rebooting if Wi-Fi glitches briefly
+  reboot_timeout: 15min
   on_client_connected:
     - esp32_ble_tracker.start_scan:
         continuous: true
@@ -104,11 +107,11 @@ logger:
     jk_bms_ble: WARN
 
 mdns:
-  disabled: true       # Disables network name caching, saving heap RAM
+  disabled: false
 
 esp32_ble:
-  max_connections: 1       # Slashes RAM allocated for concurrent links
-  max_notifications: 15     # Limits memory slots for data stream subscriptions
+  max_connections: 1
+  max_notifications: 15
 
 esp32_ble_tracker:
   scan_parameters:
@@ -1938,59 +1941,24 @@ sensor:
       icon: mdi:airbag
 
   - platform: uptime
+    name: "Info: System Uptime"
     id: uptime_seconds
     update_interval: 60s
 
 text_sensor:
   - platform: debug
     device:
-      name: "Info: Device"
+      name: "Info: System Device"
 
-  - platform: template
-    name: "Info: Device Uptime Formatted"
-    id: uptime_formatted
+  - platform: uptime
+    name: "Info: System Uptime Formatted"
     icon: "mdi:clock-start"
-    update_interval: 60s
-    lambda: |-
-      // Get total uptime in seconds
-      uint32_t total_seconds = id(uptime_seconds).state;
+    format:
+      separator: ""
+      days: "d"
+      hours: "h"
+      minutes: "m"
 
-      // Calculate chunks
-      uint32_t seconds_in_minute = 60;
-      uint32_t seconds_in_hour   = seconds_in_minute * 60;
-      uint32_t seconds_in_day    = seconds_in_hour * 24;
-      uint32_t seconds_in_month  = seconds_in_day * 30;  // Approximated as 30 days
-      uint32_t seconds_in_year   = seconds_in_day * 365; // Approximated as 365 days
-
-      uint32_t years  = total_seconds / seconds_in_year;
-      total_seconds  %= seconds_in_year;
-
-      uint32_t months = total_seconds / seconds_in_month;
-      total_seconds  %= seconds_in_month;
-
-      uint32_t days   = total_seconds / seconds_in_day;
-      total_seconds  %= seconds_in_day;
-  
-      uint32_t hours  = total_seconds / seconds_in_hour;
-      total_seconds  %= seconds_in_hour; // Get the remaining seconds for minutes
-
-      uint32_t minutes = total_seconds / seconds_in_minute;
-      uint32_t seconds = total_seconds % seconds_in_minute;    
-
-      // Format the string dynamically based on the current timeframe
-      char buffer[32];
-      if (years > 0) {
-        sprintf(buffer, "%luy %lum %lud %luh", years, months, days, hours);
-      } else if (months > 0) {
-        sprintf(buffer, "%luM %lud %luh", months, days, hours);
-      } else if (days > 0) {
-        sprintf(buffer, "%lud %luh %lum", days, hours, minutes);
-      } else if (hours > 0) {
-        sprintf(buffer, "%luh %lum", hours, minutes);
-      } else {
-          sprintf(buffer, "%lum", minutes);
-      }
-      return {buffer};
   - platform: template
     name: "Protection: history (last 10)"
     id: protection_history_sensor
