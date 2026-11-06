@@ -282,6 +282,9 @@ globals:
     initial_value: '0.0'
 
 button:
+  - platform: restart
+    name: "Risky! Restart Esp32 device"
+
   - platform: jk_bms_ble
     retrieve_settings:
       id: "bms_retrieve_settings"
