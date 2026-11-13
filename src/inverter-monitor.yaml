@@ -254,10 +254,10 @@ http_request:
   buffer_size_tx: 1024
 
 globals:
-  - id: bms_last_valid_efficiency
-    type: float
-    restore_value: true
-    initial_value: '95.0'
+#  - id: bms_last_valid_efficiency
+#    type: float
+#    restore_value: true
+#    initial_value: '112.0'
   - id: initial_charging_current
     type: float
   - id: battery_in_rest_period
@@ -271,7 +271,6 @@ globals:
   - id: protection_history_list
     type: std::vector<std::string>
     initial_value: 'std::vector<std::string>()'
-
   - id: stored_bms_charge
     type: float
     restore_value: yes
@@ -280,10 +279,16 @@ globals:
     type: float
     restore_value: yes
     initial_value: '0.0'
+  - id: stored_bms_battery_ratio
+    type: float
+    restore_value: true
+    initial_value: '112.0'
 
 button:
-  - platform: restart
+  - platform: template
     name: "Risky! Restart Esp32 device"
+    on_press:
+      - script.execute: save_and_restart_esp
 
   - platform: jk_bms_ble
     retrieve_settings:
@@ -663,7 +668,6 @@ binary_sensor:
     icon: "mdi:arrow-right-bold-circle-outline"
 
 sensor:
-
   - platform: template
     name: "BMS DischargeToCharge Cycle Ratio"
     id: bms_battery_ratio
@@ -676,9 +680,9 @@ sensor:
       float discharge = id(stored_bms_discharge);
       
       if (charge > 0.0) {
-        return (discharge / charge) * 100.0;
+        id(stored_bms_battery_ratio) = (discharge / charge) * 100.0;
       } 
-      return 0.0;      
+      return id(stored_bms_battery_ratio);    
 
   # Inverter BMS section if connected
   # Block 1xx (External BMS)
@@ -1387,9 +1391,28 @@ sensor:
     unit_of_measurement: Ah
     device_class: energy
     internal: true
-    on_value:
+    on_raw_value:
       then:
-        - component.update: precise_soc
+        - if:
+            condition:
+              # Restart ONLY if NaN AND uptime is at least 60s
+              lambda: 'return std::isnan(x) && id(uptime_seconds).state >= 60.0;'
+            then:
+              - logger.log: "Capacity sensor returned NaN! Saving globals and restarting..."
+              - script.execute: save_and_restart_esp
+            else:
+              - if:
+                  condition:
+                    # Only update precise_soc if value is a valid number AND greater than 0
+                    lambda: 'return !std::isnan(x) && x > 0.001;'
+                  then:
+                    - component.update: precise_soc
+                  else:
+                    - if:
+                        condition:
+                          lambda: 'return !std::isnan(x) && x <= 0.001;'
+                        then:
+                          - logger.log: "Capacity sensor is 0 Ah. Skipping precise_soc update (no restart)."
   - platform: homeassistant
     entity_id: sensor.bms_state_of_charge
     id: state_of_charge
@@ -3255,3 +3278,12 @@ script:
           add_to_history(id(sntp_time), id(protection_history_sensor), "(OK) Battery is under protection");
           id(battery_in_rest_period) = false;
           set_selector(id(protection_status), "Idle");
+
+  - id: save_and_restart_esp
+    then:
+      - logger.log: "Saving global variables to flash before restart..."
+      - lambda: |-
+          global_preferences->sync();
+      - delay: 200ms
+      - lambda: |-
+          App.safe_reboot();
