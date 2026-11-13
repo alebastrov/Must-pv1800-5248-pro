@@ -61,6 +61,7 @@ esp32:
     advanced:
       minimum_chip_revision: "3.1"
       sram1_as_iram: true
+      flash_chip: generic
     # Allocates a larger stack size to safely handle BLE tasks alongside Modbus
     sdkconfig_options:
       CONFIG_ESP_MAIN_TASK_STACK_SIZE: "8192"
@@ -285,11 +286,13 @@ globals:
     initial_value: '112.0'
 
 button:
+  - platform: restart
+    id: internal_restart_button
+    internal: true
   - platform: template
     name: "Risky! Restart Esp32 device"
     on_press:
       - script.execute: save_and_restart_esp
-
   - platform: jk_bms_ble
     retrieve_settings:
       id: "bms_retrieve_settings"
@@ -3282,8 +3285,8 @@ script:
   - id: save_and_restart_esp
     then:
       - logger.log: "Saving global variables to flash before restart..."
+      - delay: 100ms
       - lambda: |-
           global_preferences->sync();
-      - delay: 200ms
-      - lambda: |-
-          App.safe_reboot();
+      - delay: 500ms
+      - button.press: internal_restart_button
